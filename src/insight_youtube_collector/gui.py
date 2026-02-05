@@ -250,7 +250,12 @@ def collect_selected_videos(video_ids: list, warehouse_dir: str, json_path: str)
                 status.info("💾 Warehouseに保存中...")
                 log_message("Warehouseに保存中...")
                 result = collector.save_warehouse(videos, warehouse_dir=warehouse_dir)
-                log_message(f"Warehouse保存: {result['saved']} ファイル")
+                saved = result['saved']
+                skipped = result.get('skipped', 0)
+                if skipped > 0:
+                    log_message(f"Warehouse保存: {saved} ファイル（{skipped} 件は既存のためスキップ）")
+                else:
+                    log_message(f"Warehouse保存: {saved} ファイル")
 
             # Save to JSON
             if json_path:
@@ -648,7 +653,12 @@ def collect_single(source_type, source_value, max_videos, warehouse_dir, json_pa
                 status.info("💾 Warehouseに保存中...")
                 log_message("Warehouseに保存中...")
                 result = collector.save_warehouse(videos, warehouse_dir=warehouse_dir)
-                log_message(f"Warehouse保存: {result['saved']} ファイル")
+                saved = result['saved']
+                skipped = result.get('skipped', 0)
+                if skipped > 0:
+                    log_message(f"Warehouse保存: {saved} ファイル（{skipped} 件は既存のためスキップ）")
+                else:
+                    log_message(f"Warehouse保存: {saved} ファイル")
 
             # Save to JSON
             if json_path:
