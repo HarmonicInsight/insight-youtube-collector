@@ -193,6 +193,7 @@ class TranscriptExtractor:
             is_generated=is_generated,
             segments=segments,
             full_text=' '.join(full_text_parts),
+            error="字幕ファイルにテキストが含まれていません" if not full_text_parts else None,
         )
 
     def _extract_with_api(self, video_id: str) -> Optional[TranscriptData]:
@@ -277,4 +278,5 @@ class TranscriptExtractor:
             is_generated=is_generated,
             segments=segments,
             full_text=' '.join(full_text_parts),
+            error="字幕ファイルにテキストが含まれていません" if not full_text_parts else None,
         )

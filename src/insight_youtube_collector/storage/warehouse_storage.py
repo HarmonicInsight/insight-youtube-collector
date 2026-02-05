@@ -76,7 +76,8 @@ class WarehouseStorage:
 
         for video in videos:
             try:
-                if video.transcript.error:
+                # Skip videos without transcript content
+                if video.transcript.error or not video.transcript.full_text.strip():
                     errors += 1
                     continue
 
