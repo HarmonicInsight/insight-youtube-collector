@@ -50,6 +50,7 @@ class TranscriptExtractor:
         quiet: bool = True,
         use_cookies: bool = True,
         cookie_browser: Optional[str] = None,
+        status_callback: Optional[callable] = None,
     ):
         """
         Initialize the transcript extractor.
@@ -61,6 +62,8 @@ class TranscriptExtractor:
             use_cookies: Use browser cookies to avoid rate limiting.
             cookie_browser: Browser to extract cookies from ('chrome', 'firefox', 'edge', etc.)
                           If None, tries to auto-detect.
+            status_callback: Optional callback function to report status messages.
+                           Signature: callback(message: str) -> None
         """
         if not YT_DLP_AVAILABLE:
             raise ImportError(
@@ -71,6 +74,14 @@ class TranscriptExtractor:
         self.quiet = quiet
         self.use_cookies = use_cookies
         self.cookie_browser = cookie_browser
+        self.status_callback = status_callback
+
+    def _report_status(self, message: str):
+        """Report status via callback if available."""
+        if self.status_callback:
+            self.status_callback(message)
+        elif not self.quiet:
+            print(message)
 
     def extract(self, video_id: str) -> TranscriptData:
         """
@@ -146,8 +157,7 @@ class TranscriptExtractor:
                     error_msg = str(e).lower()
                     # If cookie error, retry without cookies
                     if 'cookie' in error_msg and use_cookies_this_time:
-                        if not self.quiet:
-                            print(f"     Cookie取得失敗、Cookieなしで再試行...")
+                        self._report_status("  ⚠️ Cookie取得失敗、Cookieなしで再試行...")
                         if 'cookiesfrombrowser' in ydl_opts:
                             del ydl_opts['cookiesfrombrowser']
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -180,9 +190,8 @@ class TranscriptExtractor:
                 error_msg = str(e)
                 # Retry on rate limit (429) with exponential backoff
                 if '429' in error_msg and retry_count < max_retries:
-                    wait_time = (2 ** retry_count) * 15  # 15, 30, 60, 120, 240 seconds
-                    if not self.quiet:
-                        print(f"     Rate limited (429), waiting {wait_time}s before retry {retry_count + 1}/{max_retries}...")
+                    wait_time = (retry_count + 1) * 10  # 10, 20, 30, 40, 50 seconds
+                    self._report_status(f"  ⏳ Rate limit (429) - {wait_time}秒待機中... (リトライ {retry_count + 1}/{max_retries})")
                     time.sleep(wait_time)
                     return self._extract_with_ytdlp(video_id, retry_count + 1)
                 if 'subtitles' in error_msg.lower():

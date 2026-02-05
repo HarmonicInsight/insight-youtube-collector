@@ -217,7 +217,7 @@ def collect_selected_videos(video_ids: list, warehouse_dir: str, json_path: str)
     log_message(f"選択した {len(video_ids)} 件の収集開始")
 
     settings = Settings(quiet_mode=True)
-    collector = YouTubeCollector(settings)
+    collector = YouTubeCollector(settings, status_callback=log_message)
 
     progress = st.progress(0)
     status = st.empty()
@@ -619,7 +619,7 @@ def collect_single(source_type, source_value, max_videos, warehouse_dir, json_pa
     log_message(f"収集開始: {source_type}")
 
     settings = Settings(quiet_mode=True)
-    collector = YouTubeCollector(settings)
+    collector = YouTubeCollector(settings, status_callback=log_message)
 
     progress = st.progress(0)
     status = st.empty()
