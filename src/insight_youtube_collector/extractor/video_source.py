@@ -95,9 +95,11 @@ class VideoSourceExtractor:
                 info = ydl.extract_info(playlist_url, download=False)
                 entries = info.get('entries', [])
                 for entry in entries:
-                    vid = entry.get('id')
-                    if vid:
-                        video_ids.append(vid)
+                    if entry:
+                        vid = entry.get('id')
+                        # Only include valid video IDs (11 chars)
+                        if vid and len(vid) == 11:
+                            video_ids.append(vid)
         except Exception as e:
             print(f"  Playlist extraction error: {e}")
 
@@ -133,9 +135,11 @@ class VideoSourceExtractor:
                 info = ydl.extract_info(channel_url, download=False)
                 entries = info.get('entries', [])
                 for entry in entries:
-                    vid = entry.get('id')
-                    if vid:
-                        video_ids.append(vid)
+                    if entry:
+                        vid = entry.get('id')
+                        # Only include valid video IDs (11 chars)
+                        if vid and len(vid) == 11:
+                            video_ids.append(vid)
         except Exception as e:
             print(f"  Channel extraction error: {e}")
 
@@ -171,7 +175,8 @@ class VideoSourceExtractor:
                 for entry in entries:
                     if entry:
                         vid = entry.get('id')
-                        if vid:
+                        # Only include valid video IDs (11 chars, not channel/playlist IDs)
+                        if vid and len(vid) == 11 and not vid.startswith(('UC', 'PL', 'UU')):
                             video_ids.append(vid)
         except Exception as e:
             print(f"  Search extraction error: {e}")
