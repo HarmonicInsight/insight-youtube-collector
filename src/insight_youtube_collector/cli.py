@@ -150,6 +150,77 @@ def cmd_manifest(args):
     return 0
 
 
+def cmd_batch(args):
+    """Handle the batch command for bulk collection."""
+    from .batch import BatchConfig, BatchCollector
+
+    print_banner()
+    print("\n  BATCH COLLECTION MODE")
+    print("=" * 60)
+
+    # Load configuration
+    try:
+        if args.keywords:
+            # Simple keywords file mode
+            config = BatchConfig.from_keywords_file(
+                args.keywords,
+                max_per_keyword=args.max,
+            )
+            print(f"  Loaded {len(config.sources)} keywords from: {args.keywords}")
+        elif args.urls:
+            # URLs file mode (auto-detect playlists/channels/videos)
+            config = BatchConfig.from_urls_file(args.urls)
+            print(f"  Loaded {len(config.sources)} sources from: {args.urls}")
+        elif args.config:
+            # Full config file mode (YAML/JSON)
+            config = BatchConfig.from_file(args.config)
+            print(f"  Loaded {len(config.sources)} sources from: {args.config}")
+        else:
+            print("  Error: No input specified")
+            return 1
+
+        # Override output settings if specified
+        if args.warehouse_dir:
+            config.warehouse_dir = args.warehouse_dir
+        if args.output:
+            config.save_json = True
+            config.json_path = args.output
+        if args.no_warehouse:
+            config.save_warehouse = False
+
+        # Default to warehouse output
+        if not config.save_json:
+            config.save_warehouse = True
+
+    except Exception as e:
+        print(f"  Error loading config: {e}")
+        return 1
+
+    # Run batch collection
+    collector = BatchCollector(config, verbose=not args.quiet)
+    result = collector.collect_all()
+
+    # Print summary
+    print("\n" + "=" * 60)
+    print("  BATCH SUMMARY")
+    print("=" * 60)
+    print(f"  Sources processed: {result['total_sources']}")
+    print(f"  Total collected: {result['total_collected']}")
+    print(f"  Unique videos: {result['unique_videos']}")
+    print(f"  Duplicates removed: {result['duplicates_removed']}")
+
+    if result.get('save_results', {}).get('warehouse'):
+        wh = result['save_results']['warehouse']
+        print(f"\n  Warehouse: {wh['warehouse_dir']}")
+        print(f"    Saved: {wh['saved']} / Skipped: {wh['skipped']}")
+
+    if result.get('save_results', {}).get('json'):
+        print(f"\n  JSON: {config.json_path}")
+
+    print("\n  Done!")
+    return 0
+
+
 def main():
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -161,20 +232,20 @@ Examples:
   # Collect from a single video
   iyc collect --url "https://youtube.com/watch?v=xxx"
 
-  # Collect from multiple videos
-  iyc collect --url "URL1" "URL2" "URL3"
-
   # Collect from a playlist (max 20 videos)
   iyc collect --playlist "https://youtube.com/playlist?list=xxx" --max 20
 
   # Collect from a channel to warehouse format
   iyc collect --channel "@channelname" --warehouse --max 10
 
-  # Collect from search results
-  iyc collect --search "建設DX AI活用" --max 10
+  # BATCH: Collect from multiple keywords at once
+  iyc batch --keywords keywords.txt --max 10
 
-  # Collect to both JSON and warehouse formats
-  iyc collect --url "URL" --both
+  # BATCH: Collect from URL list (playlists, channels, videos)
+  iyc batch --urls sources.txt
+
+  # BATCH: Use full config file
+  iyc batch --config batch_config.yaml
 
   # List warehouse contents
   iyc list
@@ -228,6 +299,32 @@ Examples:
     manifest_parser.add_argument('--warehouse-dir', help='Warehouse directory')
     manifest_parser.add_argument('--json', action='store_true', help='Output as JSON')
     manifest_parser.set_defaults(func=cmd_manifest)
+
+    # batch command
+    batch_parser = subparsers.add_parser('batch', help='Batch collect from multiple sources')
+
+    # Input (one required)
+    batch_input = batch_parser.add_mutually_exclusive_group(required=True)
+    batch_input.add_argument('--keywords', '-k',
+                            help='Text file with search keywords (one per line)')
+    batch_input.add_argument('--urls', '-u',
+                            help='Text file with URLs (playlists/channels/videos)')
+    batch_input.add_argument('--config', '-c',
+                            help='YAML/JSON config file with full batch settings')
+
+    # Output options
+    batch_parser.add_argument('--output', '-o', help='Output JSON file path')
+    batch_parser.add_argument('--warehouse-dir', help='Warehouse directory')
+    batch_parser.add_argument('--no-warehouse', action='store_true',
+                             help='Do not save to warehouse format')
+
+    # Processing options
+    batch_parser.add_argument('--max', type=int, default=10,
+                             help='Max videos per source (default: 10)')
+    batch_parser.add_argument('--quiet', '-q', action='store_true',
+                             help='Suppress progress output')
+
+    batch_parser.set_defaults(func=cmd_batch)
 
     # Parse arguments
     args = parser.parse_args()

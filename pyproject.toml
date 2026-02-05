@@ -32,12 +32,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+batch = [
+    "pyyaml>=6.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pyyaml>=6.0.0",
 ]
 all = [
-    "insight-youtube-collector[dev]",
+    "insight-youtube-collector[dev,batch]",
 ]
 
 [project.scripts]
