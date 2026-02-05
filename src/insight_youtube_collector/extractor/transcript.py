@@ -11,6 +11,8 @@ Extracts subtitles/captions with language priority:
 5. Any available subtitle
 """
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -119,10 +121,18 @@ class TranscriptExtractor:
                 browser = self.cookie_browser or 'chrome'
                 ydl_opts['cookiesfrombrowser'] = (browser,)
 
+            # Suppress stderr output from yt-dlp when in quiet mode
+            stderr_capture = io.StringIO() if self.quiet else None
+
             try:
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
+                    if self.quiet:
+                        with contextlib.redirect_stderr(stderr_capture):
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(url, download=True)
+                    else:
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
                 except Exception as e:
                     error_msg = str(e).lower()
                     # If cookie error, retry without cookies
@@ -131,8 +141,13 @@ class TranscriptExtractor:
                             print(f"     Cookie取得失敗、Cookieなしで再試行...")
                         if 'cookiesfrombrowser' in ydl_opts:
                             del ydl_opts['cookiesfrombrowser']
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=True)
+                        if self.quiet:
+                            with contextlib.redirect_stderr(stderr_capture):
+                                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                    info = ydl.extract_info(url, download=True)
+                        else:
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(url, download=True)
                     else:
                         raise
 
