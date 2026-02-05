@@ -84,22 +84,34 @@ def search_videos(query: str, max_results: int):
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'writesubtitles': False,
-                'writeautomaticsub': False,
-            }
-
             for i, vid in enumerate(video_ids):
                 status_text.text(f"字幕情報を確認中... {i+1}/{len(video_ids)}")
                 progress_bar.progress((i + 1) / len(video_ids))
 
                 try:
                     url = f"https://www.youtube.com/watch?v={vid}"
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
+
+                    # Try with cookies first, fallback without if error
+                    ydl_opts = {
+                        'quiet': True,
+                        'no_warnings': True,
+                        'skip_download': True,
+                        'writesubtitles': False,
+                        'writeautomaticsub': False,
+                        'cookiesfrombrowser': ('chrome',),
+                    }
+
+                    try:
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+                    except Exception as cookie_err:
+                        # If cookie error, retry without cookies
+                        if 'cookie' in str(cookie_err).lower():
+                            del ydl_opts['cookiesfrombrowser']
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(url, download=False)
+                        else:
+                            raise
 
                     # Check if subtitles are available
                     subtitles = info.get('subtitles', {})
@@ -337,7 +349,7 @@ def main():
 
                 col1, col2 = st.columns([0.05, 0.95])
                 with col1:
-                    if st.checkbox("", value=is_selected, key=f"chk_{vid}", label_visibility="collapsed"):
+                    if st.checkbox("選択", value=is_selected, key=f"chk_{vid}", label_visibility="collapsed"):
                         st.session_state.selected_videos.add(vid)
                     else:
                         st.session_state.selected_videos.discard(vid)
