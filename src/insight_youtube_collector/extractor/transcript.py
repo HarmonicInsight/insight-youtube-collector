@@ -35,7 +35,13 @@ except ImportError:
 class TranscriptExtractor:
     """Extract transcripts from YouTube videos."""
 
-    def __init__(self, preferred_langs: Optional[list[str]] = None, quiet: bool = True):
+    def __init__(
+        self,
+        preferred_langs: Optional[list[str]] = None,
+        quiet: bool = True,
+        use_cookies: bool = True,
+        cookie_browser: Optional[str] = None,
+    ):
         """
         Initialize the transcript extractor.
 
@@ -43,6 +49,9 @@ class TranscriptExtractor:
             preferred_langs: List of language codes in priority order.
                            Defaults to ['ja', 'en'].
             quiet: Suppress yt-dlp output.
+            use_cookies: Use browser cookies to avoid rate limiting.
+            cookie_browser: Browser to extract cookies from ('chrome', 'firefox', 'edge', etc.)
+                          If None, tries to auto-detect.
         """
         if not YT_DLP_AVAILABLE:
             raise ImportError(
@@ -51,6 +60,8 @@ class TranscriptExtractor:
             )
         self.preferred_langs = preferred_langs or ['ja', 'en']
         self.quiet = quiet
+        self.use_cookies = use_cookies
+        self.cookie_browser = cookie_browser
 
     def extract(self, video_id: str) -> TranscriptData:
         """
@@ -101,6 +112,11 @@ class TranscriptExtractor:
                 'nocheckcertificate': True,
                 'socket_timeout': 30,
             }
+
+            # Add cookie support to bypass rate limiting
+            if self.use_cookies:
+                browser = self.cookie_browser or 'chrome'
+                ydl_opts['cookiesfrombrowser'] = (browser,)
 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
