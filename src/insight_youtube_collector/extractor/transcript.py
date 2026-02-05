@@ -115,7 +115,7 @@ class TranscriptExtractor:
 
             # Add cookie support to bypass rate limiting
             if self.use_cookies:
-                browser = self.cookie_browser or 'edge'
+                browser = self.cookie_browser or 'chrome'
                 ydl_opts['cookiesfrombrowser'] = (browser,)
 
             try:

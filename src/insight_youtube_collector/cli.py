@@ -348,7 +348,7 @@ Examples:
                                help='Append to existing JSON file (deduplicate)')
     collect_parser.add_argument('--quiet', '-q', action='store_true', help='Suppress progress output')
     collect_parser.add_argument('--browser', choices=['chrome', 'firefox', 'edge', 'safari', 'brave'],
-                               default='edge', help='Browser for cookie extraction (default: edge)')
+                               default='chrome', help='Browser for cookie extraction (default: chrome)')
     collect_parser.add_argument('--no-cookies', action='store_true',
                                help='Do not use browser cookies (may cause rate limiting)')
 
