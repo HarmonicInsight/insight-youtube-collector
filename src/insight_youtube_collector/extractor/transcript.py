@@ -11,15 +11,22 @@ Extracts subtitles/captions with language priority:
 5. Any available subtitle
 """
 
-import contextlib
-import io
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from typing import Optional
 from ..models.video import TranscriptData, TranscriptSegment
+
+
+class _NullLogger:
+    """Null logger to suppress all yt-dlp output."""
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
 
 try:
     import yt_dlp
@@ -121,18 +128,20 @@ class TranscriptExtractor:
                 browser = self.cookie_browser or 'chrome'
                 ydl_opts['cookiesfrombrowser'] = (browser,)
 
-            # Suppress stderr output from yt-dlp when in quiet mode
-            stderr_capture = io.StringIO() if self.quiet else None
+            # Add null logger to suppress yt-dlp output when in quiet mode
+            if self.quiet:
+                ydl_opts['logger'] = _NullLogger()
+
+            # Suppress stderr completely when in quiet mode
+            old_stderr = None
+            if self.quiet:
+                old_stderr = sys.stderr
+                sys.stderr = open(os.devnull, 'w')
 
             try:
                 try:
-                    if self.quiet:
-                        with contextlib.redirect_stderr(stderr_capture):
-                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                                info = ydl.extract_info(url, download=True)
-                    else:
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=True)
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
                 except Exception as e:
                     error_msg = str(e).lower()
                     # If cookie error, retry without cookies
@@ -141,13 +150,8 @@ class TranscriptExtractor:
                             print(f"     Cookie取得失敗、Cookieなしで再試行...")
                         if 'cookiesfrombrowser' in ydl_opts:
                             del ydl_opts['cookiesfrombrowser']
-                        if self.quiet:
-                            with contextlib.redirect_stderr(stderr_capture):
-                                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                                    info = ydl.extract_info(url, download=True)
-                        else:
-                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                                info = ydl.extract_info(url, download=True)
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
                     else:
                         raise
 
@@ -184,6 +188,11 @@ class TranscriptExtractor:
                 if 'subtitles' in error_msg.lower():
                     return None
                 return None
+
+            finally:
+                if old_stderr:
+                    sys.stderr.close()
+                    sys.stderr = old_stderr
 
         return None
 

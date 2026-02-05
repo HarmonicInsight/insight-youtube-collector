@@ -60,11 +60,19 @@ def format_duration(seconds: int) -> str:
     return f"{m}:{s:02d}"
 
 
+class NullLogger:
+    """Null logger to suppress all yt-dlp output."""
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+
 def search_videos(query: str, max_results: int):
     """Search for videos and store results in session state."""
     import time
-    import io
-    import contextlib
+    import os
+    import sys
     log_message(f"検索中: {query}")
 
     from insight_youtube_collector.extractor import VideoSourceExtractor
@@ -83,31 +91,31 @@ def search_videos(query: str, max_results: int):
             'writeautomaticsub': False,
             'ignoreerrors': True,
             'no_color': True,
+            'logger': NullLogger(),
         }
 
         # Try with cookies first (only on first attempt)
         if retry_count == 0:
             ydl_opts['cookiesfrombrowser'] = ('chrome',)
 
-        # Suppress stderr output from yt-dlp
-        stderr_capture = io.StringIO()
+        # Suppress stderr completely by redirecting to devnull
+        old_stderr = sys.stderr
         try:
-            with contextlib.redirect_stderr(stderr_capture):
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if info:
-                        return info
+            sys.stderr = open(os.devnull, 'w')
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info:
+                    return info
         except Exception as e:
             error_msg = str(e).lower()
             # If cookie error, retry without cookies
             if 'cookie' in error_msg and 'cookiesfrombrowser' in ydl_opts:
                 del ydl_opts['cookiesfrombrowser']
                 try:
-                    with contextlib.redirect_stderr(stderr_capture):
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=False)
-                            if info:
-                                return info
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if info:
+                            return info
                 except Exception:
                     pass
             # If rate limited, retry with backoff
@@ -116,6 +124,9 @@ def search_videos(query: str, max_results: int):
                 log_message(f"  Rate limited, waiting {wait_time}s...")
                 time.sleep(wait_time)
                 return fetch_video_info(vid, retry_count + 1)
+        finally:
+            sys.stderr.close()
+            sys.stderr = old_stderr
 
         return None
 
@@ -368,13 +379,17 @@ def main():
             col1, col2, col3 = st.columns([1, 1, 2])
             with col1:
                 if st.button("✅ すべて選択"):
-                    st.session_state.selected_videos = set(
-                        v['video_id'] for v in st.session_state.search_results
-                    )
+                    for v in st.session_state.search_results:
+                        vid = v['video_id']
+                        st.session_state.selected_videos.add(vid)
+                        st.session_state[f"chk_{vid}"] = True
                     st.rerun()
             with col2:
                 if st.button("❌ すべて解除"):
-                    st.session_state.selected_videos = set()
+                    for v in st.session_state.search_results:
+                        vid = v['video_id']
+                        st.session_state.selected_videos.discard(vid)
+                        st.session_state[f"chk_{vid}"] = False
                     st.rerun()
             with col3:
                 selected_count = len(st.session_state.selected_videos)
