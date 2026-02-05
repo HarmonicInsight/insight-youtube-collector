@@ -2,7 +2,9 @@
 Video source extraction for URLs, playlists, channels, and search queries.
 """
 
+import os
 import re
+import sys
 from typing import Optional
 
 try:
@@ -10,6 +12,14 @@ try:
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
+
+
+class _NullLogger:
+    """Null logger to suppress all yt-dlp output."""
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
 
 
 class VideoSourceExtractor:
@@ -89,7 +99,15 @@ class VideoSourceExtractor:
             'nocheckcertificate': True,
         }
 
+        if self.quiet:
+            ydl_opts['logger'] = _NullLogger()
+
         video_ids = []
+        old_stderr = None
+        if self.quiet:
+            old_stderr = sys.stderr
+            sys.stderr = open(os.devnull, 'w')
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(playlist_url, download=False)
@@ -100,8 +118,12 @@ class VideoSourceExtractor:
                         # Only include valid video IDs (11 chars)
                         if vid and len(vid) == 11:
                             video_ids.append(vid)
-        except Exception as e:
-            print(f"  Playlist extraction error: {e}")
+        except Exception:
+            pass  # Silently ignore errors in quiet mode
+        finally:
+            if old_stderr:
+                sys.stderr.close()
+                sys.stderr = old_stderr
 
         return video_ids[:max_videos]
 
@@ -129,7 +151,15 @@ class VideoSourceExtractor:
             'nocheckcertificate': True,
         }
 
+        if self.quiet:
+            ydl_opts['logger'] = _NullLogger()
+
         video_ids = []
+        old_stderr = None
+        if self.quiet:
+            old_stderr = sys.stderr
+            sys.stderr = open(os.devnull, 'w')
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(channel_url, download=False)
@@ -140,8 +170,12 @@ class VideoSourceExtractor:
                         # Only include valid video IDs (11 chars)
                         if vid and len(vid) == 11:
                             video_ids.append(vid)
-        except Exception as e:
-            print(f"  Channel extraction error: {e}")
+        except Exception:
+            pass  # Silently ignore errors in quiet mode
+        finally:
+            if old_stderr:
+                sys.stderr.close()
+                sys.stderr = old_stderr
 
         return video_ids[:max_videos]
 
@@ -167,7 +201,15 @@ class VideoSourceExtractor:
             'nocheckcertificate': True,
         }
 
+        if self.quiet:
+            ydl_opts['logger'] = _NullLogger()
+
         video_ids = []
+        old_stderr = None
+        if self.quiet:
+            old_stderr = sys.stderr
+            sys.stderr = open(os.devnull, 'w')
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
@@ -178,8 +220,12 @@ class VideoSourceExtractor:
                         # Only include valid video IDs (11 chars, not channel/playlist IDs)
                         if vid and len(vid) == 11 and not vid.startswith(('UC', 'PL', 'UU')):
                             video_ids.append(vid)
-        except Exception as e:
-            print(f"  Search extraction error: {e}")
+        except Exception:
+            pass  # Silently ignore errors in quiet mode
+        finally:
+            if old_stderr:
+                sys.stderr.close()
+                sys.stderr = old_stderr
 
         return video_ids[:max_results]
 
