@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "YouTube Collector Output v1",
+  "description": "Output schema for Insight YouTube Collector JSON format",
+  "type": "object",
+  "required": ["crawl_info", "videos"],
+  "properties": {
+    "crawl_info": {
+      "type": "object",
+      "required": ["tool", "version", "crawled_at", "total_videos"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "const": "Insight YouTube Collector"
+        },
+        "version": {
+          "type": "string"
+        },
+        "crawled_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "total_videos": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successful": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "videos": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/VideoData"
+      }
+    }
+  },
+  "definitions": {
+    "VideoData": {
+      "type": "object",
+      "required": ["video_id", "url", "crawled_at", "metadata", "transcript"],
+      "properties": {
+        "video_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{11}$"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "crawled_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "metadata": {
+          "$ref": "#/definitions/VideoMetadata"
+        },
+        "transcript": {
+          "$ref": "#/definitions/TranscriptData"
+        }
+      }
+    },
+    "VideoMetadata": {
+      "type": "object",
+      "required": ["title", "channel"],
+      "properties": {
+        "title": {"type": "string"},
+        "channel": {"type": "string"},
+        "channel_id": {"type": "string"},
+        "upload_date": {"type": "string"},
+        "duration_seconds": {"type": "integer"},
+        "view_count": {"type": "integer"},
+        "like_count": {"type": "integer"},
+        "description": {"type": "string"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "categories": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "thumbnail_url": {"type": "string"}
+      }
+    },
+    "TranscriptData": {
+      "type": "object",
+      "required": ["language", "is_generated", "segment_count", "full_text"],
+      "properties": {
+        "language": {"type": "string"},
+        "is_generated": {"type": "boolean"},
+        "segment_count": {"type": "integer"},
+        "full_text": {"type": "string"},
+        "error": {"type": ["string", "null"]},
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["start", "duration", "text"],
+            "properties": {
+              "start": {"type": "number"},
+              "duration": {"type": "number"},
+              "text": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

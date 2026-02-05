@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insight-youtube-collector"
+version = "1.0.0"
+description = "YouTube transcript collector for Harmonic Insight text data warehouse"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Harmonic Insight"}
+]
+keywords = ["youtube", "transcript", "nlp", "data-warehouse", "knowledge-management"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+    "Topic :: Multimedia :: Video",
+]
+
+dependencies = [
+    "youtube-transcript-api>=0.6.0",
+    "yt-dlp>=2024.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+all = [
+    "insight-youtube-collector[dev]",
+]
+
+[project.scripts]
+iyc = "insight_youtube_collector.cli:main"
+youtube-collector = "insight_youtube_collector.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/HarmonicInsight/insight-youtube-collector"
+Repository = "https://github.com/HarmonicInsight/insight-youtube-collector"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src/insight_youtube_collector"]
+branch = true
