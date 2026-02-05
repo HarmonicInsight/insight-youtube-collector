@@ -174,9 +174,12 @@ def collect_selected_videos(video_ids: list, warehouse_dir: str, json_path: str)
             if video_data:
                 videos.append(video_data)
                 if video_data.transcript and not video_data.transcript.error:
-                    log_message(f"  ✓ {video_data.metadata.title}")
+                    text_len = len(video_data.transcript.full_text)
+                    seg_count = video_data.transcript.segment_count
+                    log_message(f"  ✓ {video_data.metadata.title} ({text_len}文字, {seg_count}セグメント)")
                 else:
-                    log_message(f"  ✗ {video_data.metadata.title} - 字幕なし")
+                    error_msg = video_data.transcript.error if video_data.transcript else "不明"
+                    log_message(f"  ✗ {video_data.metadata.title} - {error_msg}")
 
         log_message(f"取得完了: {len(videos)} 動画")
 
@@ -512,7 +515,12 @@ def main():
                         file_path = Path(warehouse_dir) / f
                         if file_path.exists():
                             content = file_path.read_text(encoding='utf-8')
-                            st.text_area("内容プレビュー", content[:2000], height=200, disabled=True)
+                            file_size = file_path.stat().st_size
+                            st.caption(f"📊 ファイルサイズ: {file_size:,} bytes / {len(content):,} 文字")
+                            if len(content) > 2000:
+                                st.text_area("内容プレビュー (最初の2000文字)", content[:2000] + "\n\n... (以下省略)", height=200, disabled=True)
+                            else:
+                                st.text_area("内容プレビュー", content, height=200, disabled=True)
 
                 if len(filtered_files) > 50:
                     st.info(f"... 他 {len(filtered_files) - 50} ファイル")
