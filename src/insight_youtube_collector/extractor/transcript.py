@@ -114,13 +114,27 @@ class TranscriptExtractor:
             }
 
             # Add cookie support to bypass rate limiting
-            if self.use_cookies:
+            use_cookies_this_time = self.use_cookies
+            if use_cookies_this_time:
                 browser = self.cookie_browser or 'chrome'
                 ydl_opts['cookiesfrombrowser'] = (browser,)
 
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    # If cookie error, retry without cookies
+                    if 'cookie' in error_msg and use_cookies_this_time:
+                        if not self.quiet:
+                            print(f"     Cookie取得失敗、Cookieなしで再試行...")
+                        if 'cookiesfrombrowser' in ydl_opts:
+                            del ydl_opts['cookiesfrombrowser']
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                    else:
+                        raise
 
                 # Find downloaded subtitle file
                 for lang in self.preferred_langs:
