@@ -515,14 +515,33 @@ class VideoAnalysisResult:
         }
 
     def to_mart_items(self, observed_at: Optional[str] = None) -> List[dict]:
-        """PIVOT Martアイテムとして出力"""
+        """PIVOT Martアイテムとして出力
+
+        mart_type は PIVOT Voice に対応:
+        - P → pain
+        - I → insecurity
+        - V → vision
+        - O → objection
+        - T → traction
+        """
         observed_at = observed_at or datetime.now().strftime("%Y-%m-%d")
         marts = []
 
+        # PIVOT Voice → mart_type マッピング
+        voice_to_mart_type = {
+            "P": "pain",
+            "I": "insecurity",
+            "V": "vision",
+            "O": "objection",
+            "T": "traction",
+        }
+
         for item in self.pivot_result.items:
+            mart_type = voice_to_mart_type.get(item.pivot_voice, "pain")
+
             marts.append({
-                "id": f"pivot_{item.id}",
-                "mart_type": "pivot_insight",
+                "id": f"{mart_type}_{item.id}",
+                "mart_type": mart_type,
                 "pivot_voice": item.pivot_voice,
                 "pivot_label": item.pivot_label,
                 "pivot_score": item.pivot_score,
