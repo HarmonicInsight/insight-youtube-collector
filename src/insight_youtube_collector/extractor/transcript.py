@@ -14,11 +14,6 @@ from ..models.video import TranscriptData, TranscriptSegment
 
 try:
     from youtube_transcript_api import YouTubeTranscriptApi
-    from youtube_transcript_api._errors import (
-        TranscriptsDisabled,
-        NoTranscriptFound,
-        VideoUnavailable,
-    )
     TRANSCRIPT_API_AVAILABLE = True
 except ImportError:
     TRANSCRIPT_API_AVAILABLE = False
@@ -41,6 +36,7 @@ class TranscriptExtractor:
                 "Install it with: pip install youtube-transcript-api"
             )
         self.preferred_langs = preferred_langs or ['ja', 'en']
+        self._api = YouTubeTranscriptApi()
 
     def extract(self, video_id: str) -> TranscriptData:
         """
@@ -52,68 +48,66 @@ class TranscriptExtractor:
         Returns:
             TranscriptData with extracted transcript or error information.
         """
+        # Try preferred languages first using the new API
+        for lang in self.preferred_langs:
+            try:
+                transcript = self._api.fetch(video_id, languages=[lang])
+                return self._format_transcript(transcript, lang, is_generated=False)
+            except Exception:
+                pass
+
+        # Try with all preferred languages at once (API will pick best match)
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript = self._api.fetch(video_id, languages=self.preferred_langs)
+            detected_lang = self.preferred_langs[0] if self.preferred_langs else 'unknown'
+            return self._format_transcript(transcript, detected_lang, is_generated=False)
+        except Exception:
+            pass
 
-            # Try manual transcripts first
-            for lang in self.preferred_langs:
+        # Try to list available transcripts and get any available
+        try:
+            transcript_list = self._api.list(video_id)
+            for transcript_info in transcript_list:
                 try:
-                    transcript = transcript_list.find_transcript([lang])
-                    segments = transcript.fetch()
-                    return self._format_transcript(segments, lang, is_generated=False)
-                except NoTranscriptFound:
-                    pass
+                    transcript = transcript_info.fetch()
+                    lang_code = getattr(transcript_info, 'language_code', 'auto')
+                    is_gen = getattr(transcript_info, 'is_generated', True)
+                    return self._format_transcript(transcript, lang_code, is_generated=is_gen)
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
-            # Try auto-generated transcripts
-            for lang in self.preferred_langs:
-                try:
-                    transcript = transcript_list.find_generated_transcript([lang])
-                    segments = transcript.fetch()
-                    return self._format_transcript(segments, lang, is_generated=True)
-                except NoTranscriptFound:
-                    pass
-
-            # Fallback: any available transcript
-            for transcript in transcript_list:
-                segments = transcript.fetch()
-                return self._format_transcript(
-                    segments,
-                    transcript.language_code,
-                    is_generated=transcript.is_generated,
-                )
-
-        except TranscriptsDisabled:
-            return TranscriptData(
-                language="",
-                is_generated=False,
-                segments=[],
-                full_text="",
-                error="字幕が無効化されています",
-            )
-        except VideoUnavailable:
-            return TranscriptData(
-                language="",
-                is_generated=False,
-                segments=[],
-                full_text="",
-                error="動画が利用できません",
-            )
+        # Last resort: try with default 'en'
+        try:
+            transcript = self._api.fetch(video_id, languages=['en'])
+            return self._format_transcript(transcript, 'en', is_generated=True)
         except Exception as e:
-            return TranscriptData(
-                language="",
-                is_generated=False,
-                segments=[],
-                full_text="",
-                error=str(e),
-            )
-
-        return TranscriptData(
-            language="",
-            is_generated=False,
-            segments=[],
-            full_text="",
-            error="字幕が見つかりません",
-        )
+            error_msg = str(e)
+            if 'disabled' in error_msg.lower():
+                return TranscriptData(
+                    language="",
+                    is_generated=False,
+                    segments=[],
+                    full_text="",
+                    error="字幕が無効化されています",
+                )
+            elif 'unavailable' in error_msg.lower():
+                return TranscriptData(
+                    language="",
+                    is_generated=False,
+                    segments=[],
+                    full_text="",
+                    error="動画が利用できません",
+                )
+            else:
+                return TranscriptData(
+                    language="",
+                    is_generated=False,
+                    segments=[],
+                    full_text="",
+                    error=f"字幕取得エラー: {error_msg}",
+                )
 
     def _format_transcript(
         self,
