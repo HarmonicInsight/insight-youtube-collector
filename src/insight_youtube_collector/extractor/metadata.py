@@ -2,6 +2,8 @@
 Metadata extraction from YouTube videos using yt-dlp.
 """
 
+import os
+import sys
 from typing import Optional
 from ..models.video import VideoMetadata
 
@@ -10,6 +12,14 @@ try:
     YT_DLP_AVAILABLE = True
 except ImportError:
     YT_DLP_AVAILABLE = False
+
+
+class _NullLogger:
+    """Null logger to suppress all yt-dlp output."""
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
 
 
 class MetadataExtractor:
@@ -47,6 +57,14 @@ class MetadataExtractor:
             'nocheckcertificate': True,
         }
 
+        if self.quiet:
+            ydl_opts['logger'] = _NullLogger()
+
+        old_stderr = None
+        if self.quiet:
+            old_stderr = sys.stderr
+            sys.stderr = open(os.devnull, 'w')
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -63,6 +81,9 @@ class MetadataExtractor:
                     categories=info.get('categories', []) or [],
                     thumbnail_url=info.get('thumbnail', '') or '',
                 )
-        except Exception as e:
-            print(f"  Metadata extraction error: {e}")
-            return None
+        except Exception:
+            return None  # Silently ignore errors in quiet mode
+        finally:
+            if old_stderr:
+                sys.stderr.close()
+                sys.stderr = old_stderr
