@@ -62,10 +62,62 @@ def format_duration(seconds: int) -> str:
 
 def search_videos(query: str, max_results: int):
     """Search for videos and store results in session state."""
+    import time
+    import io
+    import contextlib
     log_message(f"検索中: {query}")
 
     from insight_youtube_collector.extractor import VideoSourceExtractor
     import yt_dlp
+
+    def fetch_video_info(vid: str, retry_count: int = 0) -> dict | None:
+        """Fetch video info with retry on rate limit."""
+        max_retries = 3
+        url = f"https://www.youtube.com/watch?v={vid}"
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'writesubtitles': False,
+            'writeautomaticsub': False,
+            'ignoreerrors': True,
+            'no_color': True,
+        }
+
+        # Try with cookies first (only on first attempt)
+        if retry_count == 0:
+            ydl_opts['cookiesfrombrowser'] = ('chrome',)
+
+        # Suppress stderr output from yt-dlp
+        stderr_capture = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr_capture):
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        return info
+        except Exception as e:
+            error_msg = str(e).lower()
+            # If cookie error, retry without cookies
+            if 'cookie' in error_msg and 'cookiesfrombrowser' in ydl_opts:
+                del ydl_opts['cookiesfrombrowser']
+                try:
+                    with contextlib.redirect_stderr(stderr_capture):
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(url, download=False)
+                            if info:
+                                return info
+                except Exception:
+                    pass
+            # If rate limited, retry with backoff
+            if '429' in str(e) and retry_count < max_retries:
+                wait_time = (retry_count + 1) * 10  # 10, 20, 30 seconds
+                log_message(f"  Rate limited, waiting {wait_time}s...")
+                time.sleep(wait_time)
+                return fetch_video_info(vid, retry_count + 1)
+
+        return None
 
     try:
         with st.spinner("🔍 検索中..."):
@@ -89,29 +141,10 @@ def search_videos(query: str, max_results: int):
                 progress_bar.progress((i + 1) / len(video_ids))
 
                 try:
-                    url = f"https://www.youtube.com/watch?v={vid}"
-
-                    # Try with cookies first, fallback without if error
-                    ydl_opts = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'skip_download': True,
-                        'writesubtitles': False,
-                        'writeautomaticsub': False,
-                        'cookiesfrombrowser': ('chrome',),
-                    }
-
-                    try:
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(url, download=False)
-                    except Exception as cookie_err:
-                        # If cookie error, retry without cookies
-                        if 'cookie' in str(cookie_err).lower():
-                            del ydl_opts['cookiesfrombrowser']
-                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                                info = ydl.extract_info(url, download=False)
-                        else:
-                            raise
+                    info = fetch_video_info(vid)
+                    if not info:
+                        log_message(f"  スキップ: {vid} - 情報取得失敗")
+                        continue
 
                     # Check if subtitles are available
                     subtitles = info.get('subtitles', {})
@@ -125,12 +158,17 @@ def search_videos(query: str, max_results: int):
                         'title': info.get('title', '(タイトル不明)'),
                         'channel': info.get('channel', info.get('uploader', '')),
                         'duration': info.get('duration', 0),
-                        'url': url,
+                        'url': f"https://www.youtube.com/watch?v={vid}",
                         'has_subtitles': has_any,
                         'has_ja': has_ja,
                         'has_en': has_en,
                         'subtitle_langs': list(subtitles.keys()) + list(auto_captions.keys()),
                     })
+
+                    # Add small delay between requests to avoid rate limiting
+                    if i < len(video_ids) - 1:
+                        time.sleep(1.5)
+
                 except Exception as e:
                     log_message(f"  スキップ: {vid} - {e}")
                     continue
