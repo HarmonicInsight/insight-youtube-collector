@@ -291,6 +291,145 @@ def collect_selected_videos(video_ids: list, warehouse_dir: str, json_path: str)
         log_message(f"エラー: {e}")
 
 
+def generate_mart(selected_files: list, mart_type: str, warehouse_dir: str, output_dir: str):
+    """Generate a knowledge mart from selected warehouse files."""
+    clear_log()
+    log_message(f"マート生成開始: {mart_type}")
+    log_message(f"対象ファイル数: {len(selected_files)}")
+
+    progress = st.progress(0)
+    status = st.empty()
+
+    try:
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Read all selected files
+        status.info("📖 ファイル読み込み中...")
+        all_content = []
+        warehouse_path = Path(warehouse_dir)
+
+        for i, filename in enumerate(selected_files):
+            file_path = warehouse_path / filename
+            if file_path.exists():
+                content = file_path.read_text(encoding='utf-8')
+                all_content.append({
+                    'filename': filename,
+                    'content': content,
+                    'length': len(content)
+                })
+                log_message(f"  読み込み: {filename} ({len(content)}文字)")
+            progress.progress((i + 1) / (len(selected_files) + 2))
+
+        if not all_content:
+            st.error("ファイルを読み込めませんでした")
+            return
+
+        # Generate mart based on type
+        status.info(f"🧠 {mart_type}マート生成中...")
+        log_message(f"マートタイプ: {mart_type}")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{mart_type}_mart_{timestamp}.md"
+        output_file = output_path / output_filename
+
+        # Generate mart content based on type
+        mart_content = _generate_mart_content(mart_type, all_content)
+
+        # Write output file
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(mart_content)
+
+        progress.progress(100)
+        status.success(f"✅ マート生成完了!")
+        log_message(f"出力ファイル: {output_file}")
+        log_message(f"マート生成完了!")
+
+        # Show result
+        st.subheader("📄 生成結果")
+        st.success(f"ファイル: `{output_file}`")
+        st.metric("入力ファイル数", len(all_content))
+        st.metric("総文字数", sum(c['length'] for c in all_content))
+
+        # Preview
+        with st.expander("📝 マートプレビュー (最初の3000文字)"):
+            st.markdown(mart_content[:3000] + ("\n\n..." if len(mart_content) > 3000 else ""))
+
+    except Exception as e:
+        status.error(f"エラー: {e}")
+        log_message(f"エラー: {e}")
+
+
+def _generate_mart_content(mart_type: str, content_list: list) -> str:
+    """Generate mart content based on type."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    header = f"""# {mart_type.upper()} マート
+
+**生成日時**: {timestamp}
+**入力ファイル数**: {len(content_list)}
+**総文字数**: {sum(c['length'] for c in content_list):,}
+
+---
+
+"""
+
+    if mart_type == "term":
+        header += """## 用語定義マート
+
+このマートは、トランスクリプトから抽出された専門用語と定義を含みます。
+
+### 抽出対象
+- 専門用語と説明
+- 略語とその正式名称
+- 概念の定義
+
+---
+
+"""
+    elif mart_type == "regulation":
+        header += """## 法令・基準マート
+
+このマートは、トランスクリプトから抽出された法令・基準情報を含みます。
+
+### 抽出対象
+- 法律・条例の言及
+- 業界基準・規格
+- コンプライアンス要件
+
+---
+
+"""
+    elif mart_type == "process":
+        header += """## 作業手順マート
+
+このマートは、トランスクリプトから抽出された手順・プロセス情報を含みます。
+
+### 抽出対象
+- 作業手順・ステップ
+- ワークフロー
+- ベストプラクティス
+
+---
+
+"""
+
+    # Add source content sections
+    content_sections = []
+    for item in content_list:
+        section = f"""
+## ソース: {item['filename']}
+
+{item['content'][:5000]}{"..." if len(item['content']) > 5000 else ""}
+
+---
+"""
+        content_sections.append(section)
+
+    return header + "\n".join(content_sections)
+
+
 def main():
     """Main Streamlit app."""
     st.set_page_config(
@@ -345,11 +484,12 @@ def main():
             st.info("Warehouseが存在しません")
 
     # Main content - Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 検索＆選択",
         "🔗 単一収集",
         "📋 バッチ収集",
         "📁 Warehouse",
+        "🧠 マート生成",
         "📜 ログ"
     ])
 
@@ -601,8 +741,104 @@ def main():
         except Exception as e:
             st.error(f"Warehouse読み込みエラー: {e}")
 
-    # Tab 5: Log
+    # Tab 5: Mart Generation
     with tab5:
+        st.header("🧠 マート生成")
+        st.caption("Warehouseのトランスクリプトを分析してナレッジマートを作成します")
+
+        try:
+            storage = WarehouseStorage(warehouse_dir=warehouse_dir)
+            files = storage.list_files()
+            manifest = storage.get_manifest()
+
+            if not files:
+                st.warning("Warehouseにファイルがありません。先にトランスクリプトを収集してください。")
+            else:
+                # Mart type selection
+                st.subheader("📋 マートタイプ選択")
+                mart_type = st.selectbox(
+                    "生成するマートの種類",
+                    options=["term", "regulation", "process"],
+                    format_func=lambda x: {
+                        "term": "📚 用語定義 (term) - 専門用語と定義を抽出",
+                        "regulation": "📜 法令・基準 (regulation) - 法規制・基準情報を抽出",
+                        "process": "🔄 作業手順 (process) - 手順・プロセスを抽出"
+                    }.get(x, x),
+                    key="mart_type"
+                )
+
+                st.divider()
+
+                # File selection
+                st.subheader("📁 分析対象ファイル選択")
+
+                # Initialize mart_selected_files in session state
+                if 'mart_selected_files' not in st.session_state:
+                    st.session_state.mart_selected_files = set()
+
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    if st.button("✅ すべて選択", key="mart_select_all"):
+                        st.session_state.mart_selected_files = set(files)
+                        st.rerun()
+                with col2:
+                    if st.button("❌ すべて解除", key="mart_deselect_all"):
+                        st.session_state.mart_selected_files = set()
+                        st.rerun()
+
+                # File list with checkboxes
+                search_filter = st.text_input("🔍 ファイル名で絞り込み", key="mart_file_search")
+                filtered_files = files
+                if search_filter:
+                    filtered_files = [f for f in files if search_filter.lower() in f.lower()]
+
+                st.caption(f"表示中: {len(filtered_files)} / {len(files)} ファイル")
+
+                # Display files in a scrollable container
+                with st.container(height=300):
+                    for f in filtered_files:
+                        meta = manifest.get("files", {}).get(f, {})
+                        title = meta.get("source_title", f)[:60]
+                        channel = meta.get("channel", "")
+
+                        is_selected = f in st.session_state.mart_selected_files
+                        col1, col2 = st.columns([0.05, 0.95])
+                        with col1:
+                            if st.checkbox("選択", value=is_selected, key=f"mart_chk_{f}", label_visibility="collapsed"):
+                                st.session_state.mart_selected_files.add(f)
+                            else:
+                                st.session_state.mart_selected_files.discard(f)
+                        with col2:
+                            st.markdown(f"**{title}** - _{channel}_")
+
+                selected_count = len(st.session_state.mart_selected_files)
+                st.info(f"📊 選択中: {selected_count} ファイル")
+
+                st.divider()
+
+                # Output settings
+                st.subheader("📤 出力設定")
+                output_dir = st.text_input(
+                    "出力ディレクトリ",
+                    value=f"data/marts/{mart_type}",
+                    key="mart_output_dir"
+                )
+
+                # Generate button
+                st.divider()
+                if st.button("🚀 マート生成", type="primary", disabled=selected_count == 0):
+                    generate_mart(
+                        list(st.session_state.mart_selected_files),
+                        mart_type,
+                        warehouse_dir,
+                        output_dir
+                    )
+
+        except Exception as e:
+            st.error(f"エラー: {e}")
+
+    # Tab 6: Log
+    with tab6:
         st.header("収集ログ")
 
         col1, col2 = st.columns([4, 1])
