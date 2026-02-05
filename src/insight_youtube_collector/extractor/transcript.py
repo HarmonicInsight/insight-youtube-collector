@@ -1,6 +1,8 @@
 """
 Transcript extraction from YouTube videos.
 
+Uses yt-dlp as primary method (more reliable) with youtube-transcript-api as fallback.
+
 Extracts subtitles/captions with language priority:
 1. Manual Japanese subtitles
 2. Auto-generated Japanese subtitles
@@ -9,16 +11,21 @@ Extracts subtitles/captions with language priority:
 5. Any available subtitle
 """
 
+import json
+import os
+import re
+import tempfile
 from typing import Optional
 from ..models.video import TranscriptData, TranscriptSegment
 
 try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+
+try:
     from youtube_transcript_api import YouTubeTranscriptApi
-    from youtube_transcript_api._errors import (
-        TranscriptsDisabled,
-        NoTranscriptFound,
-        VideoUnavailable,
-    )
     TRANSCRIPT_API_AVAILABLE = True
 except ImportError:
     TRANSCRIPT_API_AVAILABLE = False
@@ -27,20 +34,22 @@ except ImportError:
 class TranscriptExtractor:
     """Extract transcripts from YouTube videos."""
 
-    def __init__(self, preferred_langs: Optional[list[str]] = None):
+    def __init__(self, preferred_langs: Optional[list[str]] = None, quiet: bool = True):
         """
         Initialize the transcript extractor.
 
         Args:
             preferred_langs: List of language codes in priority order.
                            Defaults to ['ja', 'en'].
+            quiet: Suppress yt-dlp output.
         """
-        if not TRANSCRIPT_API_AVAILABLE:
+        if not YT_DLP_AVAILABLE:
             raise ImportError(
-                "youtube-transcript-api is not installed. "
-                "Install it with: pip install youtube-transcript-api"
+                "yt-dlp is not installed. "
+                "Install it with: pip install yt-dlp"
             )
         self.preferred_langs = preferred_langs or ['ja', 'en']
+        self.quiet = quiet
 
     def extract(self, video_id: str) -> TranscriptData:
         """
@@ -52,68 +61,178 @@ class TranscriptExtractor:
         Returns:
             TranscriptData with extracted transcript or error information.
         """
+        # Try yt-dlp first (more reliable)
+        result = self._extract_with_ytdlp(video_id)
+        if result and not result.error:
+            return result
+
+        # Fallback to youtube-transcript-api
+        if TRANSCRIPT_API_AVAILABLE:
+            result = self._extract_with_api(video_id)
+            if result and not result.error:
+                return result
+
+        # Return error
+        return TranscriptData(
+            language="",
+            is_generated=False,
+            segments=[],
+            full_text="",
+            error="字幕を取得できませんでした",
+        )
+
+    def _extract_with_ytdlp(self, video_id: str) -> Optional[TranscriptData]:
+        """Extract transcript using yt-dlp."""
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Create temp directory for subtitle files
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Build subtitle language preference string
+            sub_langs = ','.join(self.preferred_langs)
+
+            ydl_opts = {
+                'quiet': self.quiet,
+                'no_warnings': self.quiet,
+                'skip_download': True,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+                'subtitleslangs': self.preferred_langs,
+                'subtitlesformat': 'json3',
+                'outtmpl': os.path.join(tmpdir, '%(id)s'),
+                'nocheckcertificate': True,  # Skip SSL verification
+            }
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+
+                # Find downloaded subtitle file
+                for lang in self.preferred_langs:
+                    # Check for manual subtitles
+                    sub_file = os.path.join(tmpdir, f"{video_id}.{lang}.json3")
+                    if os.path.exists(sub_file):
+                        return self._parse_json3_subtitles(sub_file, lang, is_generated=False)
+
+                # Check for auto-generated subtitles
+                for lang in self.preferred_langs:
+                    sub_file = os.path.join(tmpdir, f"{video_id}.{lang}.json3")
+                    if os.path.exists(sub_file):
+                        return self._parse_json3_subtitles(sub_file, lang, is_generated=True)
+
+                # Check for any subtitle file
+                for f in os.listdir(tmpdir):
+                    if f.endswith('.json3'):
+                        # Extract language from filename
+                        match = re.search(r'\.([a-z]{2}(-[A-Z]{2})?)\.json3$', f)
+                        lang = match.group(1) if match else 'unknown'
+                        return self._parse_json3_subtitles(
+                            os.path.join(tmpdir, f), lang, is_generated=True
+                        )
+
+            except Exception as e:
+                error_msg = str(e)
+                if 'subtitles' in error_msg.lower():
+                    return None  # No subtitles, try fallback
+                # For other errors, return None to try fallback
+                return None
+
+        return None
+
+    def _parse_json3_subtitles(
+        self, filepath: str, language: str, is_generated: bool
+    ) -> TranscriptData:
+        """Parse json3 format subtitle file."""
+        segments = []
+        full_text_parts = []
+
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
 
-            # Try manual transcripts first
-            for lang in self.preferred_langs:
-                try:
-                    transcript = transcript_list.find_transcript([lang])
-                    segments = transcript.fetch()
-                    return self._format_transcript(segments, lang, is_generated=False)
-                except NoTranscriptFound:
-                    pass
+            events = data.get('events', [])
+            for event in events:
+                # Skip events without segments
+                segs = event.get('segs', [])
+                if not segs:
+                    continue
 
-            # Try auto-generated transcripts
-            for lang in self.preferred_langs:
-                try:
-                    transcript = transcript_list.find_generated_transcript([lang])
-                    segments = transcript.fetch()
-                    return self._format_transcript(segments, lang, is_generated=True)
-                except NoTranscriptFound:
-                    pass
+                start_ms = event.get('tStartMs', 0)
+                duration_ms = event.get('dDurationMs', 0)
 
-            # Fallback: any available transcript
-            for transcript in transcript_list:
-                segments = transcript.fetch()
-                return self._format_transcript(
-                    segments,
-                    transcript.language_code,
-                    is_generated=transcript.is_generated,
-                )
+                # Combine all segments in this event
+                text_parts = []
+                for seg in segs:
+                    text = seg.get('utf8', '')
+                    if text and text.strip():
+                        text_parts.append(text)
 
-        except TranscriptsDisabled:
-            return TranscriptData(
-                language="",
-                is_generated=False,
-                segments=[],
-                full_text="",
-                error="字幕が無効化されています",
-            )
-        except VideoUnavailable:
-            return TranscriptData(
-                language="",
-                is_generated=False,
-                segments=[],
-                full_text="",
-                error="動画が利用できません",
-            )
+                combined_text = ''.join(text_parts).replace('\n', ' ').strip()
+                if combined_text:
+                    segments.append(TranscriptSegment(
+                        start=start_ms / 1000.0,
+                        duration=duration_ms / 1000.0,
+                        text=combined_text,
+                    ))
+                    full_text_parts.append(combined_text)
+
         except Exception as e:
             return TranscriptData(
                 language="",
                 is_generated=False,
                 segments=[],
                 full_text="",
-                error=str(e),
+                error=f"字幕ファイル解析エラー: {e}",
             )
 
         return TranscriptData(
-            language="",
-            is_generated=False,
-            segments=[],
-            full_text="",
-            error="字幕が見つかりません",
+            language=language,
+            is_generated=is_generated,
+            segments=segments,
+            full_text=' '.join(full_text_parts),
         )
+
+    def _extract_with_api(self, video_id: str) -> Optional[TranscriptData]:
+        """Extract transcript using youtube-transcript-api (fallback)."""
+        if not TRANSCRIPT_API_AVAILABLE:
+            return None
+
+        try:
+            api = YouTubeTranscriptApi()
+
+            # Try preferred languages
+            for lang in self.preferred_langs:
+                try:
+                    transcript = api.fetch(video_id, languages=[lang])
+                    return self._format_transcript(transcript, lang, is_generated=False)
+                except Exception:
+                    pass
+
+            # Try with all preferred languages
+            try:
+                transcript = api.fetch(video_id, languages=self.preferred_langs)
+                lang = self.preferred_langs[0] if self.preferred_langs else 'unknown'
+                return self._format_transcript(transcript, lang, is_generated=False)
+            except Exception:
+                pass
+
+            # Try to list and get any available
+            try:
+                transcript_list = api.list(video_id)
+                for transcript_info in transcript_list:
+                    try:
+                        transcript = transcript_info.fetch()
+                        lang_code = getattr(transcript_info, 'language_code', 'auto')
+                        is_gen = getattr(transcript_info, 'is_generated', True)
+                        return self._format_transcript(transcript, lang_code, is_generated=is_gen)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+        return None
 
     def _format_transcript(
         self,

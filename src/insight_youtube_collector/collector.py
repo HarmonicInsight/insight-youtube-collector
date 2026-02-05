@@ -42,7 +42,8 @@ class YouTubeCollector:
         self.source_extractor = VideoSourceExtractor(quiet=self.settings.quiet_mode)
         self.metadata_extractor = MetadataExtractor(quiet=self.settings.quiet_mode)
         self.transcript_extractor = TranscriptExtractor(
-            preferred_langs=self.settings.preferred_langs
+            preferred_langs=self.settings.preferred_langs,
+            quiet=self.settings.quiet_mode,
         )
 
     def collect_video(self, video_id: str, verbose: bool = True) -> Optional[VideoData]:

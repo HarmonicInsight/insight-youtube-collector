@@ -1,0 +1,12 @@
+# YouTube ソースリスト
+# プレイリスト、チャンネル、個別動画URLを混在可能
+# 自動的にタイプを判定
+
+# プレイリスト（playlist?list= を含むURL）
+# https://www.youtube.com/playlist?list=PLxxxxxxx
+
+# チャンネル（/@, /channel/, /c/ を含むURL）
+# https://www.youtube.com/@channelname
+
+# 個別動画
+# https://www.youtube.com/watch?v=xxxxxxxxxxx

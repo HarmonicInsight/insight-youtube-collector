@@ -32,17 +32,28 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+batch = [
+    "pyyaml>=6.0.0",
+]
+gui = [
+    "streamlit>=1.30.0",
+    "pyyaml>=6.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "pyyaml>=6.0.0",
 ]
 all = [
-    "insight-youtube-collector[dev]",
+    "insight-youtube-collector[dev,batch,gui]",
 ]
 
 [project.scripts]
 iyc = "insight_youtube_collector.cli:main"
 youtube-collector = "insight_youtube_collector.cli:main"
+
+[project.gui-scripts]
+iyc-gui = "insight_youtube_collector.gui_runner:main"
 
 [project.urls]
 Homepage = "https://github.com/HarmonicInsight/insight-youtube-collector"

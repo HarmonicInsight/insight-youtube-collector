@@ -1,0 +1,41 @@
+# Insight YouTube Collector バッチ設定ファイル
+# 複数のソースから一括収集
+
+sources:
+  # プレイリストからの収集
+  playlists:
+    - url: "https://www.youtube.com/playlist?list=PLxxxxxxx"
+      max: 20
+      label: "建設DX講座"
+
+  # チャンネルからの収集
+  channels:
+    - url: "https://www.youtube.com/@channelname"
+      max: 10
+      label: "建設テックチャンネル"
+
+  # キーワード検索からの収集
+  keywords:
+    - query: "建設DX AI活用"
+      max: 10
+    - query: "施工管理 デジタル化"
+      max: 10
+    - query: "BIM 活用事例"
+      max: 5
+
+  # 個別動画URL
+  urls:
+    - "https://www.youtube.com/watch?v=xxxxxxxxxxx"
+
+# 出力設定
+output:
+  # Warehouse形式（HMG用）
+  warehouse: true
+  warehouse_dir: "data/warehouse/lectures"
+
+  # JSON形式
+  json: false
+  json_path: "data/output/batch_result.json"
+
+  # セグメント情報（タイムスタンプ）を含める
+  include_segments: false
