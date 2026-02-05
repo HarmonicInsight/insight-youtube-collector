@@ -221,6 +221,32 @@ def cmd_batch(args):
     return 0
 
 
+def cmd_index(args):
+    """Generate INDEX.md from warehouse manifest."""
+    from .storage import WarehouseStorage
+
+    warehouse_dir = args.warehouse_dir or "data/warehouse/lectures"
+    storage = WarehouseStorage(warehouse_dir=warehouse_dir)
+
+    try:
+        index_path = storage.generate_index()
+        print(f"INDEX.md generated: {index_path}")
+
+        # Show summary
+        manifest = storage.get_manifest()
+        files = manifest.get("files", {})
+        channels = set(f.get("channel", "") for f in files.values())
+
+        print(f"  Total videos: {len(files)}")
+        print(f"  Channels: {len(channels)}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+    return 0
+
+
 def cmd_gui(args):
     """Launch the Streamlit GUI."""
     import subprocess
@@ -279,6 +305,9 @@ Examples:
 
   # Show manifest
   iyc manifest --json
+
+  # Generate INDEX.md summary
+  iyc index
 
   # Launch GUI
   iyc gui
@@ -360,6 +389,11 @@ Examples:
     gui_parser = subparsers.add_parser('gui', help='Launch web GUI (requires streamlit)')
     gui_parser.add_argument('--port', type=int, default=8501, help='Port number (default: 8501)')
     gui_parser.set_defaults(func=cmd_gui)
+
+    # index command
+    index_parser = subparsers.add_parser('index', help='Generate INDEX.md summary from warehouse')
+    index_parser.add_argument('--warehouse-dir', help='Warehouse directory')
+    index_parser.set_defaults(func=cmd_index)
 
     # Parse arguments
     args = parser.parse_args()

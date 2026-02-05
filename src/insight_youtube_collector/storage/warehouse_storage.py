@@ -46,16 +46,18 @@ class WarehouseStorage:
             self.warehouse_dir.parent / "warehouse_manifest.json"
         )
 
-    def save(self, videos: list[VideoData]) -> dict:
+    def save(self, videos: list[VideoData], generate_index: bool = True) -> dict:
         """
         Save video data to warehouse format.
 
         Creates:
         1. One .txt file per video in warehouse_dir
         2. Updates warehouse_manifest.json with metadata
+        3. Updates INDEX.md with video list summary
 
         Args:
             videos: List of VideoData to save.
+            generate_index: Whether to generate/update INDEX.md.
 
         Returns:
             Summary dict with save statistics.
@@ -68,6 +70,7 @@ class WarehouseStorage:
         manifest = self._load_manifest()
 
         saved_files = []
+        saved_videos = []
         skipped = 0
         errors = 0
 
@@ -93,6 +96,7 @@ class WarehouseStorage:
                 # Add to manifest
                 manifest["files"][filename] = video.to_manifest_entry()
                 saved_files.append(filename)
+                saved_videos.append(video)
 
             except Exception as e:
                 print(f"  Error saving {video.video_id}: {e}")
@@ -101,9 +105,14 @@ class WarehouseStorage:
         # Save updated manifest
         self._save_manifest(manifest)
 
+        # Generate index file
+        if generate_index:
+            self._update_index(manifest)
+
         return {
             "warehouse_dir": str(self.warehouse_dir),
             "manifest_path": str(self.manifest_path),
+            "index_path": str(self.warehouse_dir / "INDEX.md"),
             "saved": len(saved_files),
             "skipped": skipped,
             "errors": errors,
@@ -129,6 +138,101 @@ class WarehouseStorage:
         manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
         with open(self.manifest_path, 'w', encoding='utf-8') as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    def _update_index(self, manifest: dict) -> None:
+        """Generate INDEX.md with video list summary."""
+        index_path = self.warehouse_dir / "INDEX.md"
+
+        files_data = manifest.get("files", {})
+        if not files_data:
+            return
+
+        # Group by channel
+        by_channel: dict[str, list] = {}
+        for filename, meta in files_data.items():
+            channel = meta.get("channel", "Unknown")
+            if channel not in by_channel:
+                by_channel[channel] = []
+            by_channel[channel].append({
+                "filename": filename,
+                "title": meta.get("source_title", ""),
+                "upload_date": meta.get("upload_date", ""),
+                "url": meta.get("source_url", ""),
+                "observed_at": meta.get("observed_at", ""),
+                "duration": meta.get("duration_seconds", 0),
+                "views": meta.get("view_count", 0),
+            })
+
+        # Sort channels and videos
+        sorted_channels = sorted(by_channel.keys())
+        for channel in sorted_channels:
+            by_channel[channel].sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+
+        # Generate markdown
+        lines = [
+            "# YouTube Transcript Warehouse Index",
+            "",
+            f"**更新日時**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            f"**総ファイル数**: {len(files_data)}",
+            f"**チャンネル数**: {len(by_channel)}",
+            "",
+            "---",
+            "",
+        ]
+
+        # Summary table
+        lines.extend([
+            "## 概要",
+            "",
+            "| チャンネル | 動画数 |",
+            "|------------|--------|",
+        ])
+        for channel in sorted_channels:
+            count = len(by_channel[channel])
+            lines.append(f"| {channel} | {count} |")
+
+        lines.extend(["", "---", ""])
+
+        # Detailed list by channel
+        lines.append("## 動画リスト")
+        lines.append("")
+
+        for channel in sorted_channels:
+            videos = by_channel[channel]
+            lines.append(f"### {channel}")
+            lines.append("")
+            lines.append("| 公開日 | タイトル | 再生時間 | URL |")
+            lines.append("|--------|----------|----------|-----|")
+
+            for v in videos:
+                title = v["title"][:50] + "..." if len(v["title"]) > 50 else v["title"]
+                duration = self._format_duration(v.get("duration", 0))
+                url = v.get("url", "")
+                upload = v.get("upload_date", "")
+                lines.append(f"| {upload} | {title} | {duration} | [Link]({url}) |")
+
+            lines.append("")
+
+        # Write index file
+        with open(index_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+
+    def _format_duration(self, seconds: int) -> str:
+        """Format seconds as MM:SS or HH:MM:SS."""
+        if not seconds:
+            return "-"
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        if h > 0:
+            return f"{h}:{m:02d}:{s:02d}"
+        return f"{m}:{s:02d}"
+
+    def generate_index(self) -> str:
+        """Generate or update INDEX.md from current manifest."""
+        manifest = self._load_manifest()
+        self._update_index(manifest)
+        return str(self.warehouse_dir / "INDEX.md")
 
     def list_files(self) -> list[str]:
         """List all transcript files in warehouse."""
