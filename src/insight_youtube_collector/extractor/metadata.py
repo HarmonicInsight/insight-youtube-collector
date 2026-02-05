@@ -44,7 +44,7 @@ class MetadataExtractor:
             'quiet': self.quiet,
             'no_warnings': self.quiet,
             'skip_download': True,
-            'no_check_certificates': True,
+            'nocheckcertificate': True,
         }
 
         try:

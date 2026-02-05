@@ -86,6 +86,7 @@ class VideoSourceExtractor:
             'extract_flat': True,
             'skip_download': True,
             'playlistend': max_videos,
+            'nocheckcertificate': True,
         }
 
         video_ids = []
@@ -123,6 +124,7 @@ class VideoSourceExtractor:
             'extract_flat': True,
             'skip_download': True,
             'playlistend': max_videos,
+            'nocheckcertificate': True,
         }
 
         video_ids = []
@@ -158,6 +160,7 @@ class VideoSourceExtractor:
             'no_warnings': self.quiet,
             'extract_flat': True,
             'skip_download': True,
+            'nocheckcertificate': True,
         }
 
         video_ids = []
