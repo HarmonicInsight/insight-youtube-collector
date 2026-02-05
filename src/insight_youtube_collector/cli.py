@@ -249,6 +249,120 @@ def cmd_index(args):
     return 0
 
 
+def cmd_analyze(args):
+    """Handle the analyze command for PIVOT analysis."""
+    import json
+    from .analyzer import PIVOTAnalyzer, save_analysis_results, print_analysis_summary
+
+    print_banner()
+    print("\n  PIVOT ANALYSIS MODE")
+    print("=" * 60)
+
+    # Determine input source
+    videos = []
+
+    if args.json_input:
+        # Load from existing JSON file
+        print(f"  Loading videos from: {args.json_input}")
+        try:
+            with open(args.json_input, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Handle both single video and array formats
+            video_list = data.get("videos", []) if isinstance(data, dict) else data
+
+            from .models.video import VideoData, VideoMetadata, TranscriptData, TranscriptSegment
+            from datetime import datetime, timezone
+
+            for v in video_list:
+                metadata = VideoMetadata(**v["metadata"])
+                transcript_data = v.get("transcript", {})
+                segments = [
+                    TranscriptSegment(**s)
+                    for s in transcript_data.get("segments", [])
+                ]
+                transcript = TranscriptData(
+                    language=transcript_data.get("language", ""),
+                    is_generated=transcript_data.get("is_generated", False),
+                    segments=segments,
+                    full_text=transcript_data.get("full_text", ""),
+                    error=transcript_data.get("error"),
+                )
+                video = VideoData(
+                    video_id=v["video_id"],
+                    url=v["url"],
+                    crawled_at=datetime.fromisoformat(v["crawled_at"].replace("Z", "+00:00")),
+                    metadata=metadata,
+                    transcript=transcript,
+                )
+                videos.append(video)
+
+            print(f"  Loaded {len(videos)} videos")
+
+        except Exception as e:
+            print(f"  Error loading JSON: {e}")
+            return 1
+    else:
+        # Collect videos first
+        settings = Settings(
+            preferred_langs=['ja', 'en'],
+            quiet_mode=args.quiet,
+            use_cookies=not args.no_cookies,
+            cookie_browser=args.browser,
+        )
+        collector = YouTubeCollector(settings)
+
+        if args.url:
+            videos = collector.collect_from_urls(args.url, max_videos=args.max)
+        elif args.playlist:
+            videos = collector.collect_from_playlist(args.playlist, max_videos=args.max)
+        elif args.channel:
+            videos = collector.collect_from_channel(args.channel, max_videos=args.max)
+        elif args.search:
+            videos = collector.collect_from_search(args.search, max_videos=args.max)
+
+    if not videos:
+        print("\n  No videos to analyze.")
+        return 1
+
+    # Run PIVOT analysis
+    analyzer = PIVOTAnalyzer(domain=args.domain)
+    results = []
+
+    print(f"\n  Analyzing {len(videos)} videos...")
+
+    for i, video in enumerate(videos, 1):
+        if not args.quiet:
+            print(f"  [{i}/{len(videos)}] {video.metadata.title[:50]}...")
+
+        result = analyzer.analyze_video(video)
+        results.append(result)
+
+        if not args.quiet:
+            p = result.pain_count
+            i_count = result.insecurity_count
+            v = result.vision_count
+            o = result.objection_count
+            t = result.traction_count
+            print(f"           P:{p} I:{i_count} V:{v} O:{o} T:{t} (Score: {result.total_score})")
+
+    # Print summary
+    print_analysis_summary(results)
+
+    # Save results
+    if args.output:
+        output_format = "jsonl" if args.output.endswith(".jsonl") else "json"
+        save_analysis_results(results, args.output, format=output_format)
+        print(f"\n  ✅ Analysis saved to: {args.output}")
+
+    if args.mart_output:
+        save_analysis_results(results, args.mart_output, format="jsonl")
+        print(f"  ✅ PIVOT Marts saved to: {args.mart_output}")
+
+    print("\n  Done!")
+    return 0
+
+
 def cmd_gui(args):
     """Launch the Streamlit GUI."""
     import subprocess
@@ -301,6 +415,10 @@ Examples:
 
   # BATCH: Use full config file
   iyc batch --config batch_config.yaml
+
+  # PIVOT ANALYSIS: Analyze collected videos
+  iyc analyze --json youtube_data.json -o analysis.json
+  iyc analyze --channel "@channelname" --max 10 --domain biz_analysis
 
   # List warehouse contents
   iyc list
@@ -390,6 +508,41 @@ Examples:
                              help='Suppress progress output')
 
     batch_parser.set_defaults(func=cmd_batch)
+
+    # analyze command
+    analyze_parser = subparsers.add_parser('analyze', help='Analyze videos with PIVOT framework')
+
+    # Input (one required)
+    analyze_input = analyze_parser.add_mutually_exclusive_group(required=True)
+    analyze_input.add_argument('--json', dest='json_input',
+                               help='Load from existing JSON file (previously collected)')
+    analyze_input.add_argument('--url', nargs='+', help='YouTube video URL(s)')
+    analyze_input.add_argument('--playlist', help='YouTube playlist URL')
+    analyze_input.add_argument('--channel', help='YouTube channel URL')
+    analyze_input.add_argument('--search', help='YouTube search query')
+
+    # Output options
+    analyze_parser.add_argument('--output', '-o', help='Output analysis JSON file')
+    analyze_parser.add_argument('--mart-output', '-m',
+                                help='Output PIVOT marts as JSONL (for Harmonic Mart Generator)')
+
+    # Analysis options
+    analyze_parser.add_argument('--domain', '-d',
+                                choices=['requirements', 'biz_analysis', 'hr_evaluation',
+                                        'daily_concerns', 'customer_voice', 'retrospective'],
+                                help='Business domain for PIVOT weighting')
+
+    # Collection options (when not using --json)
+    analyze_parser.add_argument('--max', type=int, default=20,
+                                help='Max videos to process (default: 20)')
+    analyze_parser.add_argument('--quiet', '-q', action='store_true',
+                                help='Suppress progress output')
+    analyze_parser.add_argument('--browser', choices=['chrome', 'firefox', 'edge', 'safari', 'brave'],
+                                default='chrome', help='Browser for cookie extraction')
+    analyze_parser.add_argument('--no-cookies', action='store_true',
+                                help='Do not use browser cookies')
+
+    analyze_parser.set_defaults(func=cmd_analyze)
 
     # gui command
     gui_parser = subparsers.add_parser('gui', help='Launch web GUI (requires streamlit)')

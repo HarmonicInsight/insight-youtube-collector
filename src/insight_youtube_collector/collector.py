@@ -3,11 +3,12 @@ Core YouTube collector that orchestrates extraction and storage.
 """
 
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 from .extractor import TranscriptExtractor, MetadataExtractor, VideoSourceExtractor
 from .storage import JsonStorage, WarehouseStorage
 from .models.video import VideoData, VideoMetadata, TranscriptData
 from .config import Settings, DEFAULT_SETTINGS
+from .analyzer import PIVOTAnalyzer, VideoAnalysisResult, save_analysis_results, print_analysis_summary
 
 
 def format_duration(seconds: int) -> str:
@@ -323,3 +324,135 @@ class YouTubeCollector:
             warehouse_dir=warehouse_dir or self.settings.default_warehouse_dir,
         )
         return storage.save(videos)
+
+    # ========================================
+    # PIVOT Analysis Methods
+    # ========================================
+
+    def analyze(
+        self,
+        videos: List[VideoData],
+        domain: Optional[str] = None,
+        verbose: bool = True,
+    ) -> List[VideoAnalysisResult]:
+        """
+        Analyze collected videos using PIVOT framework.
+
+        PIVOT classifies transcript content into:
+        - P (Pain): 課題・困りごと
+        - I (Insecurity): 不安・心配
+        - V (Vision): 要望・理想像
+        - O (Objection): 摩擦・抵抗
+        - T (Traction): 成功・強み
+
+        Args:
+            videos: List of VideoData to analyze.
+            domain: Business domain for weight adjustment.
+            verbose: Print progress and summary.
+
+        Returns:
+            List[VideoAnalysisResult]: PIVOT analysis results.
+        """
+        if verbose:
+            print(f"\n🔍 Analyzing {len(videos)} videos with PIVOT framework...")
+
+        analyzer = PIVOTAnalyzer(domain=domain)
+        results = []
+
+        for i, video in enumerate(videos, 1):
+            if verbose:
+                print(f"  [{i}/{len(videos)}] {video.metadata.title[:50]}...")
+
+            result = analyzer.analyze_video(video)
+            results.append(result)
+
+            if verbose:
+                p = result.pain_count
+                i_count = result.insecurity_count
+                v = result.vision_count
+                o = result.objection_count
+                t = result.traction_count
+                print(f"           P:{p} I:{i_count} V:{v} O:{o} T:{t} (Score: {result.total_score})")
+
+        if verbose:
+            print_analysis_summary(results)
+
+        return results
+
+    def save_analysis(
+        self,
+        results: List[VideoAnalysisResult],
+        output_path: str,
+        format: str = "json",
+    ) -> None:
+        """
+        Save PIVOT analysis results.
+
+        Args:
+            results: List of VideoAnalysisResult.
+            output_path: Output file path.
+            format: Output format ("json" or "jsonl" for mart items).
+        """
+        save_analysis_results(results, output_path, format)
+        print(f"✅ Analysis saved to: {output_path}")
+
+    def collect_and_analyze(
+        self,
+        videos: Optional[List[VideoData]] = None,
+        urls: Optional[List[str]] = None,
+        playlist_url: Optional[str] = None,
+        channel_url: Optional[str] = None,
+        search_query: Optional[str] = None,
+        max_videos: Optional[int] = None,
+        domain: Optional[str] = None,
+        output_json: Optional[str] = None,
+        output_analysis: Optional[str] = None,
+        verbose: bool = True,
+    ) -> tuple[List[VideoData], List[VideoAnalysisResult]]:
+        """
+        Collect videos and analyze them in one pipeline.
+
+        Args:
+            videos: Pre-collected videos (if any).
+            urls: Video URLs to collect.
+            playlist_url: Playlist URL.
+            channel_url: Channel URL.
+            search_query: Search query.
+            max_videos: Maximum videos to process.
+            domain: Business domain for PIVOT analysis.
+            output_json: Path to save collected data.
+            output_analysis: Path to save analysis results.
+            verbose: Print progress.
+
+        Returns:
+            Tuple of (collected videos, analysis results).
+        """
+        # Collect videos if not provided
+        if videos is None:
+            videos = []
+            if urls:
+                videos.extend(self.collect_from_urls(urls, max_videos, verbose))
+            if playlist_url:
+                videos.extend(self.collect_from_playlist(playlist_url, max_videos, verbose))
+            if channel_url:
+                videos.extend(self.collect_from_channel(channel_url, max_videos, verbose))
+            if search_query:
+                videos.extend(self.collect_from_search(search_query, max_videos, verbose))
+
+        if not videos:
+            if verbose:
+                print("No videos to analyze.")
+            return [], []
+
+        # Save collected data if requested
+        if output_json:
+            self.save_json(videos, output_json)
+
+        # Analyze videos
+        results = self.analyze(videos, domain=domain, verbose=verbose)
+
+        # Save analysis if requested
+        if output_analysis:
+            self.save_analysis(results, output_analysis)
+
+        return videos, results
