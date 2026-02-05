@@ -53,6 +53,8 @@ def cmd_collect(args):
     settings = Settings(
         preferred_langs=['ja', 'en'],
         quiet_mode=args.quiet,
+        use_cookies=not args.no_cookies,
+        cookie_browser=args.browser,
     )
     collector = YouTubeCollector(settings)
 
@@ -345,6 +347,10 @@ Examples:
     collect_parser.add_argument('--append', action='store_true',
                                help='Append to existing JSON file (deduplicate)')
     collect_parser.add_argument('--quiet', '-q', action='store_true', help='Suppress progress output')
+    collect_parser.add_argument('--browser', choices=['chrome', 'firefox', 'edge', 'safari', 'brave'],
+                               default='chrome', help='Browser for cookie extraction (default: chrome)')
+    collect_parser.add_argument('--no-cookies', action='store_true',
+                               help='Do not use browser cookies (may cause rate limiting)')
 
     collect_parser.set_defaults(func=cmd_collect)
 

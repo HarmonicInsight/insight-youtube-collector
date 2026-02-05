@@ -27,6 +27,10 @@ class Settings:
     # Behavior
     quiet_mode: bool = False
 
+    # Cookie settings for rate limit bypass
+    use_cookies: bool = True
+    cookie_browser: Optional[str] = None  # 'chrome', 'firefox', 'edge', etc.
+
     def to_dict(self) -> dict:
         return {
             "preferred_langs": self.preferred_langs,
@@ -36,6 +40,8 @@ class Settings:
             "include_segments": self.include_segments,
             "pretty_json": self.pretty_json,
             "quiet_mode": self.quiet_mode,
+            "use_cookies": self.use_cookies,
+            "cookie_browser": self.cookie_browser,
         }
 
 

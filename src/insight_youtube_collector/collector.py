@@ -45,6 +45,8 @@ class YouTubeCollector:
         self.transcript_extractor = TranscriptExtractor(
             preferred_langs=self.settings.preferred_langs,
             quiet=self.settings.quiet_mode,
+            use_cookies=self.settings.use_cookies,
+            cookie_browser=self.settings.cookie_browser,
         )
 
     def collect_video(self, video_id: str, verbose: bool = True) -> Optional[VideoData]:
