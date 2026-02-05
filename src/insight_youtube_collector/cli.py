@@ -221,6 +221,33 @@ def cmd_batch(args):
     return 0
 
 
+def cmd_gui(args):
+    """Launch the Streamlit GUI."""
+    import subprocess
+    from pathlib import Path
+
+    print_banner()
+    print("\n  Launching GUI...")
+
+    gui_path = Path(__file__).parent / "gui.py"
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", str(gui_path),
+             "--server.port", str(args.port)],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"  Error launching GUI: {e}")
+        return 1
+    except FileNotFoundError:
+        print("  Error: Streamlit is not installed.")
+        print("  Install it with: pip install insight-youtube-collector[gui]")
+        return 1
+
+    return 0
+
+
 def main():
     """Main entry point for the CLI."""
     parser = argparse.ArgumentParser(
@@ -252,6 +279,9 @@ Examples:
 
   # Show manifest
   iyc manifest --json
+
+  # Launch GUI
+  iyc gui
         """,
     )
 
@@ -325,6 +355,11 @@ Examples:
                              help='Suppress progress output')
 
     batch_parser.set_defaults(func=cmd_batch)
+
+    # gui command
+    gui_parser = subparsers.add_parser('gui', help='Launch web GUI (requires streamlit)')
+    gui_parser.add_argument('--port', type=int, default=8501, help='Port number (default: 8501)')
+    gui_parser.set_defaults(func=cmd_gui)
 
     # Parse arguments
     args = parser.parse_args()
