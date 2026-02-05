@@ -235,18 +235,33 @@ class YouTubeCollector:
             print(f"\nProcessing {len(video_ids)} videos\n")
 
         results = []
+        consecutive_failures = 0
+        base_delay = 5.0  # Base delay between requests
+
         for i, vid in enumerate(video_ids, 1):
             if verbose:
                 print(f"[{i}/{len(video_ids)}]")
             video_data = self.collect_video(vid, verbose)
             if video_data:
                 results.append(video_data)
+                # Check if transcript failed (might be rate limited)
+                if video_data.transcript and video_data.transcript.error:
+                    consecutive_failures += 1
+                else:
+                    consecutive_failures = 0
+            else:
+                consecutive_failures += 1
             if verbose:
                 print()
 
             # Add delay between requests to avoid rate limiting (429)
+            # Increase delay progressively if we see failures
             if i < len(video_ids):
-                time.sleep(2.0)
+                delay = base_delay + (consecutive_failures * 5.0)  # Add 5s per failure
+                delay = min(delay, 60.0)  # Cap at 60 seconds
+                if verbose and delay > base_delay:
+                    print(f"  (Increasing delay to {delay:.0f}s due to failures)")
+                time.sleep(delay)
 
         return results
 

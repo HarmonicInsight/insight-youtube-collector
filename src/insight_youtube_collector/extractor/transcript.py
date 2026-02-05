@@ -85,7 +85,7 @@ class TranscriptExtractor:
     def _extract_with_ytdlp(self, video_id: str, retry_count: int = 0) -> Optional[TranscriptData]:
         """Extract transcript using yt-dlp with retry on rate limit."""
         url = f"https://www.youtube.com/watch?v={video_id}"
-        max_retries = 3
+        max_retries = 5
 
         # Create temp directory for subtitle files
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -131,9 +131,9 @@ class TranscriptExtractor:
                 error_msg = str(e)
                 # Retry on rate limit (429) with exponential backoff
                 if '429' in error_msg and retry_count < max_retries:
-                    wait_time = (2 ** retry_count) * 5  # 5, 10, 20 seconds
+                    wait_time = (2 ** retry_count) * 15  # 15, 30, 60, 120, 240 seconds
                     if not self.quiet:
-                        print(f"     Rate limited, waiting {wait_time}s...")
+                        print(f"     Rate limited (429), waiting {wait_time}s before retry {retry_count + 1}/{max_retries}...")
                     time.sleep(wait_time)
                     return self._extract_with_ytdlp(video_id, retry_count + 1)
                 if 'subtitles' in error_msg.lower():
