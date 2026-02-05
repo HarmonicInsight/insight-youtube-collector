@@ -15,6 +15,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from typing import Optional
 from ..models.video import TranscriptData, TranscriptSegment
 
@@ -81,15 +82,13 @@ class TranscriptExtractor:
             error="字幕を取得できませんでした",
         )
 
-    def _extract_with_ytdlp(self, video_id: str) -> Optional[TranscriptData]:
-        """Extract transcript using yt-dlp."""
+    def _extract_with_ytdlp(self, video_id: str, retry_count: int = 0) -> Optional[TranscriptData]:
+        """Extract transcript using yt-dlp with retry on rate limit."""
         url = f"https://www.youtube.com/watch?v={video_id}"
+        max_retries = 3
 
         # Create temp directory for subtitle files
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Build subtitle language preference string
-            sub_langs = ','.join(self.preferred_langs)
-
             ydl_opts = {
                 'quiet': self.quiet,
                 'no_warnings': self.quiet,
@@ -99,7 +98,8 @@ class TranscriptExtractor:
                 'subtitleslangs': self.preferred_langs,
                 'subtitlesformat': 'json3',
                 'outtmpl': os.path.join(tmpdir, '%(id)s'),
-                'nocheckcertificate': True,  # Skip SSL verification
+                'nocheckcertificate': True,
+                'socket_timeout': 30,
             }
 
             try:
@@ -108,7 +108,6 @@ class TranscriptExtractor:
 
                 # Find downloaded subtitle file
                 for lang in self.preferred_langs:
-                    # Check for manual subtitles
                     sub_file = os.path.join(tmpdir, f"{video_id}.{lang}.json3")
                     if os.path.exists(sub_file):
                         return self._parse_json3_subtitles(sub_file, lang, is_generated=False)
@@ -122,7 +121,6 @@ class TranscriptExtractor:
                 # Check for any subtitle file
                 for f in os.listdir(tmpdir):
                     if f.endswith('.json3'):
-                        # Extract language from filename
                         match = re.search(r'\.([a-z]{2}(-[A-Z]{2})?)\.json3$', f)
                         lang = match.group(1) if match else 'unknown'
                         return self._parse_json3_subtitles(
@@ -131,9 +129,15 @@ class TranscriptExtractor:
 
             except Exception as e:
                 error_msg = str(e)
+                # Retry on rate limit (429) with exponential backoff
+                if '429' in error_msg and retry_count < max_retries:
+                    wait_time = (2 ** retry_count) * 5  # 5, 10, 20 seconds
+                    if not self.quiet:
+                        print(f"     Rate limited, waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                    return self._extract_with_ytdlp(video_id, retry_count + 1)
                 if 'subtitles' in error_msg.lower():
-                    return None  # No subtitles, try fallback
-                # For other errors, return None to try fallback
+                    return None
                 return None
 
         return None

@@ -2,6 +2,7 @@
 Core YouTube collector that orchestrates extraction and storage.
 """
 
+import time
 from typing import Optional, Callable
 from .extractor import TranscriptExtractor, MetadataExtractor, VideoSourceExtractor
 from .storage import JsonStorage, WarehouseStorage
@@ -242,6 +243,10 @@ class YouTubeCollector:
                 results.append(video_data)
             if verbose:
                 print()
+
+            # Add delay between requests to avoid rate limiting (429)
+            if i < len(video_ids):
+                time.sleep(2.0)
 
         return results
 
