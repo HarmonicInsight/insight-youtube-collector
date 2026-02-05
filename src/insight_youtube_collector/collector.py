@@ -30,14 +30,20 @@ class YouTubeCollector:
     and multiple output formats (JSON, warehouse).
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(
+        self,
+        settings: Optional[Settings] = None,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ):
         """
         Initialize the YouTube collector.
 
         Args:
             settings: Configuration settings. Uses defaults if not provided.
+            status_callback: Optional callback for status messages (e.g., rate limit waits).
         """
         self.settings = settings or DEFAULT_SETTINGS
+        self.status_callback = status_callback
 
         # Initialize extractors
         self.source_extractor = VideoSourceExtractor(quiet=self.settings.quiet_mode)
@@ -47,6 +53,7 @@ class YouTubeCollector:
             quiet=self.settings.quiet_mode,
             use_cookies=self.settings.use_cookies,
             cookie_browser=self.settings.cookie_browser,
+            status_callback=status_callback,
         )
 
     def collect_video(self, video_id: str, verbose: bool = True) -> Optional[VideoData]:
