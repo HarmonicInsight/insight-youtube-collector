@@ -150,23 +150,26 @@ class VideoSourceExtractor:
         Returns:
             List of video IDs.
         """
+        # Use explicit ytsearch prefix for YouTube search
+        search_query = f"ytsearch{max_results}:{query}"
+
         ydl_opts = {
             'quiet': self.quiet,
             'no_warnings': self.quiet,
             'extract_flat': True,
             'skip_download': True,
-            'default_search': f'ytsearch{max_results}',
         }
 
         video_ids = []
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(query, download=False)
+                info = ydl.extract_info(search_query, download=False)
                 entries = info.get('entries', [])
                 for entry in entries:
-                    vid = entry.get('id')
-                    if vid:
-                        video_ids.append(vid)
+                    if entry:
+                        vid = entry.get('id')
+                        if vid:
+                            video_ids.append(vid)
         except Exception as e:
             print(f"  Search extraction error: {e}")
 
