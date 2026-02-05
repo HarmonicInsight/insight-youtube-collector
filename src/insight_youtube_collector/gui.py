@@ -31,6 +31,10 @@ def init_session_state():
         st.session_state.collection_results = []
     if 'collection_log' not in st.session_state:
         st.session_state.collection_log = []
+    if 'search_results' not in st.session_state:
+        st.session_state.search_results = []
+    if 'selected_videos' not in st.session_state:
+        st.session_state.selected_videos = set()
 
 
 def log_message(message: str):
@@ -42,6 +46,180 @@ def log_message(message: str):
 def clear_log():
     """Clear collection log."""
     st.session_state.collection_log = []
+
+
+def format_duration(seconds: int) -> str:
+    """Format seconds as HH:MM:SS or MM:SS."""
+    if not seconds:
+        return "0:00"
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def search_videos(query: str, max_results: int):
+    """Search for videos and store results in session state."""
+    log_message(f"検索中: {query}")
+
+    from insight_youtube_collector.extractor import VideoSourceExtractor
+    import yt_dlp
+
+    try:
+        with st.spinner("🔍 検索中..."):
+            source_extractor = VideoSourceExtractor(quiet=True)
+
+            # Get video IDs from search
+            video_ids = source_extractor.extract_from_search(query, max_results)
+
+            if not video_ids:
+                st.warning("検索結果が見つかりませんでした")
+                log_message("検索結果なし")
+                return
+
+            # Get metadata and subtitle info for each video
+            results = []
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'writesubtitles': False,
+                'writeautomaticsub': False,
+            }
+
+            for i, vid in enumerate(video_ids):
+                status_text.text(f"字幕情報を確認中... {i+1}/{len(video_ids)}")
+                progress_bar.progress((i + 1) / len(video_ids))
+
+                try:
+                    url = f"https://www.youtube.com/watch?v={vid}"
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+
+                    # Check if subtitles are available
+                    subtitles = info.get('subtitles', {})
+                    auto_captions = info.get('automatic_captions', {})
+                    has_ja = 'ja' in subtitles or 'ja' in auto_captions
+                    has_en = 'en' in subtitles or 'en' in auto_captions
+                    has_any = bool(subtitles) or bool(auto_captions)
+
+                    results.append({
+                        'video_id': vid,
+                        'title': info.get('title', '(タイトル不明)'),
+                        'channel': info.get('channel', info.get('uploader', '')),
+                        'duration': info.get('duration', 0),
+                        'url': url,
+                        'has_subtitles': has_any,
+                        'has_ja': has_ja,
+                        'has_en': has_en,
+                        'subtitle_langs': list(subtitles.keys()) + list(auto_captions.keys()),
+                    })
+                except Exception as e:
+                    log_message(f"  スキップ: {vid} - {e}")
+                    continue
+
+            progress_bar.empty()
+            status_text.empty()
+
+            # Filter to only videos with subtitles
+            videos_with_subs = [r for r in results if r['has_subtitles']]
+
+            st.session_state.search_results = videos_with_subs
+            st.session_state.selected_videos = set()  # Clear previous selections
+
+            total_found = len(results)
+            with_subs = len(videos_with_subs)
+            log_message(f"検索完了: {total_found} 件中 {with_subs} 件が字幕あり")
+
+            if videos_with_subs:
+                st.success(f"✅ {with_subs} 件の動画が見つかりました（字幕あり）")
+                if total_found > with_subs:
+                    st.info(f"ℹ️ 字幕なしの {total_found - with_subs} 件は除外されました")
+            else:
+                st.warning("字幕のある動画が見つかりませんでした")
+
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"検索エラー: {e}")
+        log_message(f"検索エラー: {e}")
+
+
+def collect_selected_videos(video_ids: list, warehouse_dir: str, json_path: str):
+    """Collect transcripts for selected videos."""
+    clear_log()
+    log_message(f"選択した {len(video_ids)} 件の収集開始")
+
+    settings = Settings(quiet_mode=True)
+    collector = YouTubeCollector(settings)
+
+    progress = st.progress(0)
+    status = st.empty()
+
+    try:
+        videos = []
+        total = len(video_ids)
+
+        for i, vid in enumerate(video_ids):
+            status.info(f"🔄 [{i+1}/{total}] トランスクリプト取得中...")
+            log_message(f"取得中: {vid}")
+            progress.progress((i + 1) / (total + 1))
+
+            video_data = collector.collect_video(vid, verbose=False)
+            if video_data:
+                videos.append(video_data)
+                if video_data.transcript and not video_data.transcript.error:
+                    log_message(f"  ✓ {video_data.metadata.title}")
+                else:
+                    log_message(f"  ✗ {video_data.metadata.title} - 字幕なし")
+
+        log_message(f"取得完了: {len(videos)} 動画")
+
+        if videos:
+            # Save to warehouse
+            if warehouse_dir:
+                status.info("💾 Warehouseに保存中...")
+                log_message("Warehouseに保存中...")
+                result = collector.save_warehouse(videos, warehouse_dir=warehouse_dir)
+                log_message(f"Warehouse保存: {result['saved']} ファイル")
+
+            # Save to JSON
+            if json_path:
+                log_message("JSONに保存中...")
+                collector.save_json(videos, output_path=json_path)
+                log_message(f"JSON保存: {json_path}")
+
+            progress.progress(100)
+            status.success(f"✅ 完了: {len(videos)} 動画を収集しました")
+            log_message("収集完了!")
+
+            # Clear search results
+            st.session_state.search_results = []
+            st.session_state.selected_videos = set()
+
+            # Show results
+            st.subheader("収集結果")
+            success_count = sum(1 for v in videos if v.transcript and not v.transcript.error)
+            st.metric("トランスクリプト取得成功", f"{success_count} / {len(videos)}")
+
+            for v in videos[:10]:
+                has_transcript = v.transcript and not v.transcript.error
+                icon = "✓" if has_transcript else "✗"
+                st.write(f"{icon} **{v.metadata.title}**")
+            if len(videos) > 10:
+                st.write(f"... 他 {len(videos) - 10} 件")
+        else:
+            status.warning("動画が見つかりませんでした")
+            log_message("動画が見つかりませんでした")
+
+    except Exception as e:
+        status.error(f"エラー: {e}")
+        log_message(f"エラー: {e}")
 
 
 def main():
@@ -98,15 +276,95 @@ def main():
             st.info("Warehouseが存在しません")
 
     # Main content - Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "🔍 検索＆選択",
         "🔗 単一収集",
         "📋 バッチ収集",
         "📁 Warehouse",
         "📜 ログ"
     ])
 
-    # Tab 1: Single Collection
+    # Tab 1: Search & Select
     with tab1:
+        st.header("🔍 検索して選択")
+        st.caption("検索結果から動画を選んでトランスクリプトを取得します")
+
+        # Search section
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            search_query = st.text_input(
+                "検索キーワード",
+                placeholder="建設DX AI活用 など",
+                key="search_query"
+            )
+        with col2:
+            search_max = st.number_input("検索件数", min_value=5, max_value=50, value=20, key="search_max")
+
+        if st.button("🔍 検索", key="search_btn", type="primary"):
+            if search_query:
+                search_videos(search_query, search_max)
+            else:
+                st.warning("検索キーワードを入力してください")
+
+        # Display search results
+        if st.session_state.search_results:
+            st.divider()
+            st.subheader(f"検索結果: {len(st.session_state.search_results)} 件")
+
+            # Select all / Deselect all buttons
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                if st.button("✅ すべて選択"):
+                    st.session_state.selected_videos = set(
+                        v['video_id'] for v in st.session_state.search_results
+                    )
+                    st.rerun()
+            with col2:
+                if st.button("❌ すべて解除"):
+                    st.session_state.selected_videos = set()
+                    st.rerun()
+            with col3:
+                selected_count = len(st.session_state.selected_videos)
+                st.write(f"選択中: **{selected_count}** 件")
+
+            # Video list with checkboxes
+            for v in st.session_state.search_results:
+                vid = v['video_id']
+                is_selected = vid in st.session_state.selected_videos
+
+                col1, col2 = st.columns([0.05, 0.95])
+                with col1:
+                    if st.checkbox("", value=is_selected, key=f"chk_{vid}", label_visibility="collapsed"):
+                        st.session_state.selected_videos.add(vid)
+                    else:
+                        st.session_state.selected_videos.discard(vid)
+                with col2:
+                    duration = format_duration(v.get('duration', 0))
+                    # Show subtitle language badges
+                    lang_badges = []
+                    if v.get('has_ja'):
+                        lang_badges.append("🇯🇵")
+                    if v.get('has_en'):
+                        lang_badges.append("🇺🇸")
+                    lang_str = " ".join(lang_badges) if lang_badges else "📝"
+                    st.markdown(f"**{v['title']}** {lang_str}  \n{v['channel']} • {duration}")
+
+            st.divider()
+
+            # Collect selected videos
+            selected_count = len(st.session_state.selected_videos)
+            if selected_count > 0:
+                if st.button(f"🚀 選択した {selected_count} 件を収集", type="primary", use_container_width=True):
+                    collect_selected_videos(
+                        list(st.session_state.selected_videos),
+                        warehouse_dir if save_warehouse else None,
+                        json_path if save_json else None,
+                    )
+            else:
+                st.info("収集する動画を選択してください")
+
+    # Tab 2: Single Collection
+    with tab2:
         st.header("単一ソースからの収集")
 
         col1, col2 = st.columns([2, 1])
@@ -159,8 +417,8 @@ def main():
                 else:
                     st.warning("ソースを入力してください")
 
-    # Tab 2: Batch Collection
-    with tab2:
+    # Tab 3: Batch Collection
+    with tab3:
         st.header("バッチ収集")
 
         batch_mode = st.radio(
@@ -217,8 +475,8 @@ def main():
             if config_file and st.button("🚀 バッチ収集開始", key="batch_config_btn", type="primary"):
                 collect_batch_config(config_file, warehouse_dir)
 
-    # Tab 3: Warehouse Browser
-    with tab3:
+    # Tab 4: Warehouse Browser
+    with tab4:
         st.header("Warehouse ブラウザ")
 
         try:
@@ -265,8 +523,8 @@ def main():
         except Exception as e:
             st.error(f"Warehouse読み込みエラー: {e}")
 
-    # Tab 4: Log
-    with tab4:
+    # Tab 5: Log
+    with tab5:
         st.header("収集ログ")
 
         col1, col2 = st.columns([4, 1])
