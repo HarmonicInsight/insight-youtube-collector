@@ -345,11 +345,12 @@ def main():
             st.info("Warehouseが存在しません")
 
     # Main content - Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 検索＆選択",
         "🔗 単一収集",
         "📋 バッチ収集",
         "📁 Warehouse",
+        "🧠 マート生成",
         "📜 ログ"
     ])
 
@@ -601,8 +602,136 @@ def main():
         except Exception as e:
             st.error(f"Warehouse読み込みエラー: {e}")
 
-    # Tab 5: Log
+    # Tab 5: PIVOT Mart Generation
     with tab5:
+        st.header("🧠 マート生成")
+        st.caption("Warehouseのトランスクリプトを分析してナレッジマートを作成します")
+
+        # PIVOT Mart Type Selection
+        st.subheader("📊 マートタイプ選択")
+
+        # PIVOT Voice Types
+        pivot_mart_types = {
+            "pain": {
+                "label": "😰 Pain (課題・困りごと)",
+                "desc": "「困っている」「できない」「問題がある」などの課題を抽出",
+                "score": -2,
+            },
+            "insecurity": {
+                "label": "😟 Insecurity (不安・心配)",
+                "desc": "「不安」「心配」「リスク」などの将来への懸念を抽出",
+                "score": -1,
+            },
+            "vision": {
+                "label": "✨ Vision (要望・理想像)",
+                "desc": "「したい」「欲しい」「理想」などの改善要望を抽出",
+                "score": 1,
+            },
+            "objection": {
+                "label": "🚫 Objection (摩擦・抵抗)",
+                "desc": "「嫌だ」「反対」「無理」などの実行障壁を抽出",
+                "score": -1,
+            },
+            "traction": {
+                "label": "🎉 Traction (成功・強み)",
+                "desc": "「できた」「うまくいった」「便利」などの成功事例を抽出",
+                "score": 2,
+            },
+        }
+
+        # Domain selection
+        domain_options = {
+            "requirements": "要件定義・課題発見",
+            "biz_analysis": "ビジネス分析・現状把握",
+            "hr_evaluation": "人事評価・1on1",
+            "daily_concerns": "日常の心配事・相談",
+            "customer_voice": "顧客の声・フィードバック",
+            "retrospective": "振り返り・レトロスペクティブ",
+        }
+
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_domain = st.selectbox(
+                "分析ドメイン",
+                options=list(domain_options.keys()),
+                format_func=lambda x: domain_options[x],
+                help="ドメインによってPIVOT Voiceの重み付けが変わります"
+            )
+
+        with col2:
+            selected_marts = st.multiselect(
+                "生成するマートタイプ",
+                options=list(pivot_mart_types.keys()),
+                default=["pain", "vision"],
+                format_func=lambda x: pivot_mart_types[x]["label"],
+            )
+
+        # Show selected mart descriptions
+        if selected_marts:
+            st.markdown("**選択したマートタイプ:**")
+            for mart in selected_marts:
+                info = pivot_mart_types[mart]
+                st.markdown(f"- {info['label']}: {info['desc']}")
+
+        st.divider()
+
+        # Source selection
+        st.subheader("📂 分析対象")
+
+        try:
+            storage = WarehouseStorage(warehouse_dir=warehouse_dir)
+            files = storage.list_files()
+
+            if files:
+                # File selection
+                analyze_all = st.checkbox("すべてのファイルを分析", value=True)
+
+                if not analyze_all:
+                    selected_files = st.multiselect(
+                        "分析するファイル",
+                        options=files,
+                        default=files[:5] if len(files) > 5 else files,
+                    )
+                else:
+                    selected_files = files
+
+                st.info(f"📁 {len(selected_files)} ファイルを分析対象に選択")
+
+                # Output options
+                st.subheader("💾 出力設定")
+                col1, col2 = st.columns(2)
+                with col1:
+                    output_format = st.selectbox(
+                        "出力形式",
+                        ["JSONL (HMG互換)", "JSON"],
+                    )
+                with col2:
+                    output_path = st.text_input(
+                        "出力パス",
+                        value=f"data/marts/pivot_{selected_domain}.jsonl"
+                    )
+
+                # Generate button
+                if st.button("🚀 PIVOT分析実行", type="primary", use_container_width=True):
+                    if selected_files and selected_marts:
+                        generate_pivot_marts(
+                            warehouse_dir,
+                            selected_files,
+                            selected_marts,
+                            selected_domain,
+                            output_path,
+                            output_format,
+                        )
+                    else:
+                        st.warning("ファイルとマートタイプを選択してください")
+            else:
+                st.info("Warehouseにファイルがありません。先に動画を収集してください。")
+
+        except Exception as e:
+            st.error(f"エラー: {e}")
+
+    # Tab 6: Log
+    with tab6:
         st.header("収集ログ")
 
         col1, col2 = st.columns([4, 1])
@@ -815,6 +944,172 @@ def collect_batch_config(config_file, warehouse_dir):
     except Exception as e:
         status.error(f"エラー: {e}")
         log_message(f"エラー: {e}")
+
+
+def generate_pivot_marts(warehouse_dir, files, mart_types, domain, output_path, output_format):
+    """Generate PIVOT marts from warehouse files."""
+    import json
+    from pathlib import Path
+    from .analyzer import PIVOTAnalyzer, PIVOTInsight
+    from .models.video import VideoData, VideoMetadata, TranscriptData
+
+    clear_log()
+    log_message(f"PIVOT分析開始: {len(files)} ファイル, ドメイン={domain}")
+    log_message(f"マートタイプ: {', '.join(mart_types)}")
+
+    progress = st.progress(0)
+    status = st.empty()
+
+    try:
+        # Initialize analyzer
+        analyzer = PIVOTAnalyzer(domain=domain, use_morphology=True)
+        all_marts = []
+
+        storage = WarehouseStorage(warehouse_dir=warehouse_dir)
+        manifest = storage.get_manifest()
+
+        for i, filename in enumerate(files):
+            status.info(f"🔄 [{i+1}/{len(files)}] 分析中: {filename[:50]}...")
+            progress.progress((i + 1) / (len(files) + 1))
+
+            file_path = Path(warehouse_dir) / filename
+            if not file_path.exists():
+                log_message(f"  スキップ: {filename} - ファイルが存在しません")
+                continue
+
+            # Read transcript
+            content = file_path.read_text(encoding='utf-8')
+
+            # Get metadata from manifest
+            file_meta = manifest.get("files", {}).get(filename, {})
+            video_id = file_meta.get("video_id", filename.replace(".txt", ""))
+            title = file_meta.get("source_title", filename)
+            channel = file_meta.get("channel", "Unknown")
+
+            # Create minimal VideoData for analysis
+            metadata = VideoMetadata(
+                title=title,
+                channel=channel,
+                duration=0,
+                view_count=0,
+                upload_date="",
+                description="",
+                thumbnail_url="",
+            )
+            transcript = TranscriptData(
+                language="ja",
+                is_generated=True,
+                segments=[],
+                full_text=content,
+            )
+            video = VideoData(
+                video_id=video_id,
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                crawled_at=datetime.now(),
+                metadata=metadata,
+                transcript=transcript,
+            )
+
+            # Analyze
+            result = analyzer.analyze_video(video)
+
+            # Filter by selected mart types
+            for item in result.pivot_result.items:
+                voice_to_mart = {
+                    "P": "pain",
+                    "I": "insecurity",
+                    "V": "vision",
+                    "O": "objection",
+                    "T": "traction",
+                }
+                item_mart_type = voice_to_mart.get(item.pivot_voice, "pain")
+                if item_mart_type in mart_types:
+                    all_marts.append({
+                        "id": f"{item_mart_type}_{item.id}",
+                        "mart_type": item_mart_type,
+                        "pivot_voice": item.pivot_voice,
+                        "pivot_label": item.pivot_label,
+                        "pivot_score": item.pivot_score,
+                        "target_layers": item.target_layers,
+                        "title": item.title,
+                        "body": item.body,
+                        "confidence": item.confidence,
+                        "temperature": item.temperature,
+                        "keywords": {"surface": item.matched_keywords},
+                        "source_ref": {
+                            "doc_id": video_id,
+                            "doc_type": "youtube_transcript",
+                            "channel": channel,
+                            "title": title,
+                        },
+                        "source_time": {
+                            "observed_at": file_meta.get("observed_at", datetime.now().strftime("%Y-%m-%d"))
+                        },
+                        "morphology": {
+                            "intensity_score": round(item.intensity_score, 2),
+                            "degree_factor": item.degree_factor,
+                            "certainty": item.certainty,
+                            "reasoning": item.reasoning,
+                        },
+                    })
+
+            log_message(f"  ✓ {title[:40]}... ({len(result.pivot_result.items)} items)")
+
+        # Save results
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if "JSONL" in output_format:
+            with open(output_file, "w", encoding="utf-8") as f:
+                for mart in all_marts:
+                    f.write(json.dumps(mart, ensure_ascii=False) + "\n")
+        else:
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "domain": domain,
+                    "mart_types": mart_types,
+                    "total_items": len(all_marts),
+                    "items": all_marts,
+                }, f, ensure_ascii=False, indent=2)
+
+        progress.progress(100)
+        log_message(f"完了: {len(all_marts)} アイテムを生成")
+        status.success(f"✅ 完了: {len(all_marts)} アイテムを {output_path} に保存")
+
+        # Show summary by mart type
+        st.subheader("📊 生成結果サマリー")
+        summary = {}
+        for mart in all_marts:
+            mt = mart["mart_type"]
+            summary[mt] = summary.get(mt, 0) + 1
+
+        cols = st.columns(len(summary) if summary else 1)
+        for i, (mt, count) in enumerate(summary.items()):
+            with cols[i]:
+                labels = {
+                    "pain": "😰 Pain",
+                    "insecurity": "😟 Insecurity",
+                    "vision": "✨ Vision",
+                    "objection": "🚫 Objection",
+                    "traction": "🎉 Traction",
+                }
+                st.metric(labels.get(mt, mt), count)
+
+        # Show sample items
+        if all_marts:
+            st.subheader("📝 サンプルアイテム")
+            for mart in all_marts[:5]:
+                with st.expander(f"{mart['pivot_label']}: {mart['title'][:60]}..."):
+                    st.write(f"**本文:** {mart['body'][:200]}...")
+                    st.write(f"**強度:** {mart['morphology']['intensity_score']}")
+                    st.write(f"**確信度:** {mart['morphology']['certainty']}")
+                    st.write(f"**ソース:** {mart['source_ref']['title']}")
+
+    except Exception as e:
+        status.error(f"エラー: {e}")
+        log_message(f"エラー: {e}")
+        import traceback
+        log_message(traceback.format_exc())
 
 
 if __name__ == "__main__":
